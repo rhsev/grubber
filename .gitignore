@@ -1,0 +1,10 @@
+# Compiled binaries
+grubber_crystal
+*.dwarf
+
+# macOS
+.DS_Store
+
+# Output files
+*.tsv
+*.json

@@ -1,0 +1,534 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# grubber - Extract structured data from Markdown notes
+#
+# USAGE:
+#   As CLI:     ./grubber extract ~/notes [options]
+#   As library: require_relative 'grubber'
+#
+# Version: 0.4.1
+# Author: Ralf
+
+require 'yaml'
+require 'json'
+require 'set'
+require 'optparse'
+require 'ostruct'
+require 'date'
+
+module DataGrubber
+  CONFIG_PATH = File.expand_path('~/.config/grubber/config.yaml')
+
+  # Configuration loader
+  class Config
+    attr_reader :defaults, :sets
+
+    def initialize
+      @defaults = {
+        'blocks_only' => false,
+        'array_fields' => [],
+        'filters' => []
+      }
+      @sets = {}
+      load_config if File.exist?(CONFIG_PATH)
+    end
+
+    def load_config
+      config = YAML.safe_load(File.read(CONFIG_PATH), permitted_classes: [Symbol]) || {}
+      @defaults = @defaults.merge(config['defaults'] || {})
+      @sets = config['sets'] || {}
+    rescue => e
+      warn "Warning: Could not load config: #{e.message}"
+    end
+
+    def get_set(name)
+      @sets[name]
+    end
+
+    def set_names
+      @sets.keys
+    end
+  end
+
+  # Filter for matching records against conditions
+  class Filter
+    # Operators: = (equals/contains), ~ (substring), ^ (starts with), ! (not equals)
+    FILTER_REGEX = /^([^=~^!]+)([=~^!])(.*)$/
+
+    def initialize(filters)
+      @conditions = filters.map { |f| parse_filter(f) }
+    end
+
+    def match?(record)
+      @conditions.all? { |cond| matches_condition?(record, cond) }
+    end
+
+    private
+
+    def parse_filter(filter_str)
+      match = filter_str.match(FILTER_REGEX)
+      raise "Invalid filter syntax: #{filter_str}" unless match
+      { field: match[1].strip, op: match[2], value: match[3].strip.downcase }
+    end
+
+    def matches_condition?(record, cond)
+      field_value = record[cond[:field]]
+      return cond[:op] == '!' if field_value.nil?  # nil matches only '!' (not equals)
+
+      values = field_value.is_a?(Array) ? field_value : [field_value]
+      values_downcase = values.map { |v| v.to_s.downcase }
+
+      case cond[:op]
+      when '='
+        values_downcase.any? { |v| v == cond[:value] }
+      when '~'
+        values_downcase.any? { |v| v.include?(cond[:value]) }
+      when '^'
+        values_downcase.any? { |v| v.start_with?(cond[:value]) }
+      when '!'
+        values_downcase.none? { |v| v == cond[:value] }
+      else
+        false
+      end
+    end
+  end
+
+  # Main class for extracting structured data from Markdown notes
+  class Grubber
+    attr_reader :notes_dir
+
+    def initialize(notes_dir, blocks_only: false, frontmatter_only: false, array_fields: [], filters: [])
+      @notes_dir = File.expand_path(notes_dir)
+      @blocks_only = blocks_only
+      @frontmatter_only = frontmatter_only
+      @array_fields = array_fields.map(&:to_s)
+      @filter = filters.empty? ? nil : Filter.new(filters)
+      raise "Directory not found: #{@notes_dir}" unless Dir.exist?(@notes_dir)
+    end
+    
+    # Extract all YAML records from all Markdown files
+    # Returns hash with :records (array of hashes) and :keys (array of field names)
+    # @param files [Array<String>, nil] Optional list of specific files to process
+    def extract(files: nil)
+      records = []
+      all_keys = Set.new
+
+      files_to_process = files || markdown_files
+      files_to_process.each do |file|
+        note = parse_note(file)
+
+        note[:records].each do |record|
+          # Merge note metadata with record data
+          flat_record = note[:metadata].merge(record)
+          # Normalize specified fields to arrays
+          flat_record = normalize_arrays(flat_record)
+          # Apply filter if present
+          next if @filter && !@filter.match?(flat_record)
+          records << flat_record
+          all_keys.merge(flat_record.keys)
+        end
+      end
+      
+      { records: records, keys: all_keys.to_a.sort }
+    end
+    
+    # Output records as JSON to stdout or file
+    def output_json(records:, output: $stdout)
+      output.puts JSON.pretty_generate(records)
+    end
+
+    # Output records as TSV
+    # Arrays are joined with ", "
+    def output_tsv(records:, keys:, output: $stdout)
+      return if records.empty?
+
+      # Header
+      output.puts keys.join("\t")
+
+      # Rows
+      records.each do |record|
+        row = keys.map do |key|
+          value = record[key]
+          case value
+          when Array
+            value.join(', ')
+          when nil
+            ''
+          else
+            value.to_s.gsub(/[\t\n\r]/, ' ')  # Escape tabs/newlines
+          end
+        end
+        output.puts row.join("\t")
+      end
+    end
+    
+    private
+    
+    # Find all .md files in directory (recursive)
+    def markdown_files
+      Dir.glob("#{@notes_dir}/**/*.md")
+    end
+    
+    # Compiled regex patterns for performance
+    FRONTMATTER_REGEX = /\A---\n(.*?)\n---\n/m
+    YAML_BLOCK_REGEX = /```yaml\n(.*?)\n```/m
+
+    # Parse a single Markdown note
+    # Returns hash with :metadata (from frontmatter) and :records (from YAML blocks)
+    def parse_note(file_path)
+      content = File.read(file_path, encoding: 'UTF-8', invalid: :replace, undef: :replace, replace: '?')
+
+      # Single regex match for frontmatter - reuse match data
+      frontmatter_match = content.match(FRONTMATTER_REGEX)
+
+      if frontmatter_match
+        frontmatter = parse_yaml_string(frontmatter_match[1])
+        body = frontmatter_match.post_match
+      else
+        frontmatter = {}
+        body = content
+      end
+
+      # Frontmatter-only mode: skip YAML block parsing
+      if @frontmatter_only
+        return build_result(file_path, frontmatter, [])
+      end
+
+      # Early exit: skip YAML block parsing if no blocks exist
+      unless body.include?('```yaml')
+        return build_result(file_path, frontmatter, [])
+      end
+
+      records = parse_yaml_blocks(body)
+      build_result(file_path, frontmatter, records)
+    end
+
+    # Build the result hash
+    def build_result(file_path, frontmatter, records)
+      metadata = frontmatter.merge('_note_file' => file_path)
+
+      if records.empty? && !@blocks_only && !@frontmatter_only
+        records = [{}]
+      end
+
+      if records.empty? && @frontmatter_only
+        records = [{}]
+      end
+
+      { metadata: metadata, records: records }
+    end
+
+    # Parse a YAML string, returns hash or empty hash on error
+    def parse_yaml_string(yaml_content)
+      result = YAML.safe_load(yaml_content, permitted_classes: [Symbol, Date, Time]) || {}
+      stringify_dates(result)
+    rescue Psych::SyntaxError => e
+      warn "Warning: Could not parse YAML: #{e.message}"
+      {}
+    end
+    
+    # Parse all YAML code blocks from markdown body
+    # Returns array of hashes
+    def parse_yaml_blocks(body)
+      records = []
+
+      body.scan(YAML_BLOCK_REGEX) do |match|
+        record = parse_yaml_string(match[0])
+        if record.is_a?(Hash) && !record.empty?
+          records << record
+        end
+      end
+
+      records
+    end
+    
+    # Convert Date and Time objects to strings recursively
+    # This ensures JSON serialization works properly
+    def stringify_dates(obj)
+      case obj
+      when Hash
+        obj.transform_values { |v| stringify_dates(v) }
+      when Array
+        obj.map { |v| stringify_dates(v) }
+      when Date, Time
+        obj.strftime('%Y-%m-%d')
+      else
+        obj
+      end
+    end
+    
+    # Normalize specified fields to arrays if they are strings
+    # This makes querying with jq easier (no string vs array distinction)
+    def normalize_arrays(obj)
+      return obj if @array_fields.empty?
+      
+      case obj
+      when Hash
+        obj.each_with_object({}) do |(k, v), hash|
+          key = k.to_s
+          
+          # Check if this field should be normalized to array
+          if @array_fields.include?(key) && v.is_a?(String)
+            hash[k] = [v]  # Convert string to array
+          else
+            hash[k] = normalize_arrays(v)  # Recurse for nested structures
+          end
+        end
+      when Array
+        obj.map { |v| normalize_arrays(v) }
+      else
+        obj
+      end
+    end
+  end
+end
+
+# ----------------------------------------------------------------------
+# CLI Interface
+# Only runs when executed directly, not when required as library.
+# Uses OptionParser for robust argument handling.
+# ----------------------------------------------------------------------
+if __FILE__ == $PROGRAM_NAME
+  class GrubberCLI
+    VERSION = '0.4.1'
+
+    def self.run(args)
+      # Shortcut for global help/version without a command
+      if args.empty? || ['-h', '--help'].include?(args.first)
+        print_global_usage
+        exit 0
+      end
+
+      if ['-v', '--version'].include?(args.first)
+        puts "grubber #{VERSION}"
+        exit 0
+      end
+
+      command = args.shift
+      
+      case command
+      when 'extract'
+        run_extract(args)
+      else
+        warn "Unknown command: #{command}"
+        warn "Run 'grubber --help' for usage."
+        exit 1
+      end
+    end
+
+    # Handles the 'extract' command and its specific options
+    # Uses tri-state logic: nil means "not set by CLI", allowing proper override hierarchy
+    def self.run_extract(args)
+      config = DataGrubber::Config.new
+
+      # CLI options start as nil (unset) - will be filled by parser
+      cli = OpenStruct.new
+      cli.output_file = nil
+      cli.format = nil
+      cli.blocks_only = nil
+      cli.frontmatter_only = nil
+      cli.array_fields = nil
+      cli.filters = []  # Filters accumulate, so start with empty array
+      cli.set_name = nil
+      cli.notes_dir = nil
+
+      parser = OptionParser.new do |opts|
+        opts.banner = "Usage: grubber extract [directory] [options]"
+        opts.separator ""
+        opts.separator "Options:"
+
+        opts.on("-o", "--output FILE", "Write output to file instead of stdout") do |file|
+          cli.output_file = file
+        end
+
+        opts.on("-s", "--set NAME", "Load options from config set") do |name|
+          cli.set_name = name
+        end
+
+        opts.on("--format FORMAT", %w[json tsv], "Output format: json (default) or tsv") do |fmt|
+          cli.format = fmt
+        end
+
+        opts.on("-b", "--blocks-only", "Only extract YAML blocks, ignore frontmatter-only notes") do
+          cli.blocks_only = true
+        end
+
+        opts.on("-m", "--frontmatter-only", "Only extract frontmatter, ignore YAML blocks") do
+          cli.frontmatter_only = true
+        end
+
+        opts.on("--array-fields FIELDS", Array, "Normalize fields to arrays (comma-separated)") do |list|
+          cli.array_fields = list
+        end
+
+        opts.on("-f", "--filter EXPR", "Filter records (can be used multiple times)",
+                "  Operators: = (equals), ~ (contains), ^ (starts with), ! (not equals)",
+                "  Examples: type=vertrag, due^2025-02, name~versicher") do |expr|
+          cli.filters << expr
+        end
+
+        opts.on("-h", "--help", "Show this help message") do
+          puts opts
+          exit
+        end
+      end
+
+      begin
+        parser.parse!(args)
+      rescue OptionParser::InvalidOption => e
+        warn e.message
+        warn "Run 'grubber extract --help' for details."
+        exit 1
+      end
+
+      # Directory from positional argument
+      cli.notes_dir = args.first if args.any?
+
+      # Build final options with hierarchy: CLI > Set > Env > Config Defaults > Hardcoded
+      options = build_final_options(cli, config)
+
+      process_extract(options)
+    end
+
+    # Merge options with proper override hierarchy
+    def self.build_final_options(cli, config)
+      set_config = cli.set_name ? config.get_set(cli.set_name) : nil
+
+      if cli.set_name && set_config.nil?
+        warn "Error: Unknown set '#{cli.set_name}'"
+        warn "Available sets: #{config.set_names.join(', ')}" if config.set_names.any?
+        exit 1
+      end
+
+      set_config ||= {}
+
+      # Helper: pick first non-nil value (priority order)
+      pick = ->(cli_val, set_val, env_val, default_val, hardcoded) {
+        [cli_val, set_val, env_val, default_val, hardcoded].find { |v| !v.nil? }
+      }
+
+      options = OpenStruct.new
+      options.output_file = cli.output_file
+      options.format = pick.(cli.format, nil, nil, nil, 'json')
+
+      options.notes_dir = pick.(
+        cli.notes_dir,
+        set_config['path'] ? File.expand_path(set_config['path']) : nil,
+        ENV['GRUBBER_NOTES'],
+        nil,
+        Dir.pwd
+      )
+
+      options.blocks_only = pick.(
+        cli.blocks_only,
+        set_config['blocks_only'],
+        nil,
+        config.defaults['blocks_only'],
+        false
+      )
+
+      options.frontmatter_only = pick.(
+        cli.frontmatter_only,
+        set_config['frontmatter_only'],
+        nil,
+        config.defaults['frontmatter_only'],
+        false
+      )
+
+      options.array_fields = pick.(
+        cli.array_fields,
+        set_config['array_fields'],
+        ENV['GRUBBER_ARRAY_FIELDS']&.split(',')&.map(&:strip),
+        config.defaults['array_fields'],
+        []
+      )
+
+      # Filters: merge from set + CLI (not replace)
+      set_filters = set_config['filters'] || []
+      default_filters = config.defaults['filters'] || []
+      options.filters = (default_filters + set_filters + cli.filters).uniq
+
+      options
+    end
+
+    # Executes the logic with the parsed options
+    def self.process_extract(options)
+      begin
+        grubber = DataGrubber::Grubber.new(
+          options.notes_dir,
+          blocks_only: options.blocks_only,
+          frontmatter_only: options.frontmatter_only,
+          array_fields: options.array_fields,
+          filters: options.filters
+        )
+
+        result = grubber.extract
+
+        if result[:records].empty?
+          warn "No YAML records found in #{options.notes_dir}"
+          exit 0
+        end
+
+        # Output handling
+        output_target = options.output_file ? File.open(options.output_file, 'w') : $stdout
+
+        begin
+          case options.format
+          when 'tsv'
+            grubber.output_tsv(records: result[:records], keys: result[:keys], output: output_target)
+          else
+            grubber.output_json(records: result[:records], output: output_target)
+          end
+        ensure
+          output_target.close if options.output_file
+        end
+
+        if options.output_file
+          warn "Extracted #{result[:records].size} records to #{options.output_file}"
+        end
+
+      rescue => e
+        warn "Error: #{e.message}"
+        exit 1
+      end
+    end
+
+    def self.print_global_usage
+      puts <<~USAGE
+        grubber v#{VERSION} - Extract structured data from Markdown notes
+
+        USAGE:
+          grubber [command] [options]
+
+        COMMANDS:
+          extract      Extract YAML blocks from Markdown files
+          version      Show version
+
+        EXAMPLES:
+          # Basic extraction from default dir
+          grubber extract
+
+          # Extract from specific dir to file
+          grubber extract ~/notes -o data.json
+
+          # Use a config set
+          grubber extract --set vertrag --format tsv
+
+          # Normalize 'tags' to be arrays and output to stdout
+          grubber extract --array-fields tags,keywords
+
+        See 'grubber extract --help' for extraction specific options.
+
+        CONFIG:
+          #{DataGrubber::CONFIG_PATH}
+
+        ENVIRONMENT:
+          GRUBBER_NOTES         Default notes directory
+          GRUBBER_ARRAY_FIELDS  Default fields to normalize (comma-separated)
+      USAGE
+    end
+  end
+
+  GrubberCLI.run(ARGV)
+end
