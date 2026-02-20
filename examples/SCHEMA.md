@@ -1,6 +1,6 @@
-# Schema Reference
+# Example Schema
 
-grubber is schema-agnostic: any valid YAML in frontmatter or code blocks will be extracted. The schema below is an example for personal knowledge management.
+grubber is schema-agnostic: any valid YAML in frontmatter or code blocks will be extracted. The schema below is an example for personal knowledge management. See the [README](../README.md#how-to-structure-your-notes) for how grubber reads your notes.
 
 ## Frontmatter
 
@@ -11,8 +11,6 @@ keywords: []
 created:
 ---
 ```
-
-Frontmatter fields are merged into every record from that file. On field name collision, the YAML block wins.
 
 ## Record Types
 
@@ -97,7 +95,9 @@ owner: Bob Lee
 
 These are examples. Add any fields you need — grubber extracts whatever YAML it finds.
 
-## Design Principles
+## Design Conventions
+
+These conventions are optional. They apply to this example schema, not to grubber itself.
 
 - `type` and `name` on every record — universal identification
 - snake_case consistently — no camelCase exceptions
@@ -107,5 +107,4 @@ These are examples. Add any fields you need — grubber extracts whatever YAML i
 - Date fields are tolerant — ISO datetime preferred (`2025-01-15T14:00`), date-only allowed (`2025-01-15`)
 - Plural for arrays — `participants`, `projects`
 - English field names throughout — no localized terms in field names
-- YAML block wins over frontmatter — on field name collision, the block value takes precedence
 - Frontmatter for note metadata only — `type` belongs in the YAML block, not frontmatter

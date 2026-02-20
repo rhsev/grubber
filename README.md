@@ -215,16 +215,26 @@ CLI flags > Config set > Environment variables > Config defaults > Built-in defa
 -h, --help                Show help
 ```
 
+## How to structure your notes
+
+grubber reads two things from a Markdown file: YAML frontmatter and fenced YAML code blocks (` ```yaml `). Everything else is ignored.
+
+- Frontmatter holds note-level metadata (title, keywords, created date). These fields are merged into every record from that file.
+- YAML code blocks hold structured data records. Only ` ```yaml ` blocks are read — other fenced blocks are ignored.
+- Multiple YAML blocks in one note produce multiple records. Each inherits the frontmatter fields.
+- On field name collision, the YAML block wins over frontmatter.
+- Notes without YAML blocks are extracted as frontmatter-only records (unless `--blocks-only`).
+- A `_note_file` field is added automatically to every record for traceability.
+- grubber scans directories recursively. Every `.md` file is included.
+
+See [examples/SCHEMA.md](examples/SCHEMA.md) for an example schema with optional design conventions.
+
 ## Design
 
 - Extract only. grubber reads and outputs. No transforms, no joins, no computed fields. Complexity belongs in downstream tools.
-- Frontmatter provides note-level metadata (title, keywords, created date).
-- YAML blocks hold structured records (each with a `type` and `name`).
-- When both exist, each YAML block inherits the frontmatter fields.
-- On field name collision, the YAML block wins.
+- Valid Markdown. The format doesn't break any renderer. grubber adds a queryable layer on top.
 - Dates are output as strings (`YYYY-MM-DD`) for safe JSON serialization.
-- A `_note_file` field is added to each record for traceability.
-- Valid Markdown. The format doesn't break any renderer. It extends Markdown with a queryable layer.
+- Schema-agnostic. grubber extracts whatever YAML it finds. Field names and record types are up to you.
 
 ## License
 
