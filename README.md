@@ -229,7 +229,7 @@ grubber reads two things from a Markdown file: YAML frontmatter and fenced YAML 
 - A `_note_file` field is added automatically to every record for traceability.
 - grubber scans directories recursively. Every `.md` file is included.
 
-See [examples/SCHEMA.md](examples/SCHEMA.md) for an example schema with optional design conventions.
+See [examples/SCHEMA.md](examples/SCHEMA.md) for an example schema.
 
 ## Design
 

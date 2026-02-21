@@ -94,17 +94,3 @@ owner: Bob Lee
 ```
 
 These are examples. Add any fields you need — grubber extracts whatever YAML it finds.
-
-## Design Conventions
-
-These conventions are optional. They apply to this example schema, not to grubber itself.
-
-- `type` and `name` on every record — universal identification
-- snake_case consistently — no camelCase exceptions
-- `start`/`end` for time ranges — `end` means expiration, never "last updated"
-- Specific field names for different semantics — `org` (affiliation), `partner` (contractual), `vendor` (seller)
-- `amount` + `currency` separated — enables calculations and comparisons
-- Date fields are tolerant — ISO datetime preferred (`2025-01-15T14:00`), date-only allowed (`2025-01-15`)
-- Plural for arrays — `participants`, `projects`
-- English field names throughout — no localized terms in field names
-- Frontmatter for note metadata only — `type` belongs in the YAML block, not frontmatter
