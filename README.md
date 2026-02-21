@@ -70,6 +70,8 @@ crystal build grubber.cr -o grubber_crystal --release
 cp grubber_crystal /usr/local/bin/grubber
 ```
 
+Pre-built binary for macOS (Apple Silicon) available under [Releases](https://github.com/rhsev/grubber/releases).
+
 ### Quick start
 
 ```sh
