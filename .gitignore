@@ -8,3 +8,9 @@ grubber_crystal
 # Output files
 *.tsv
 *.json
+
+# Tools
+dataview-bridge.rb
+
+# Notes
+dataview-vs-grubber.md

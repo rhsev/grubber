@@ -3,7 +3,7 @@ require "json"
 require "option_parser"
 
 module DataGrubber
-  VERSION       = "0.4.1"
+  VERSION       = "0.5"
   CONFIG_PATH   = Path.home.join(".config/grubber/config.yaml").to_s
 
   FRONTMATTER_REGEX = /\A---\n(.*?)\n---\n/m
@@ -356,6 +356,10 @@ class GrubberCLI
       end
       parser.on("-m", "--frontmatter-only", "Only extract frontmatter, ignore YAML blocks") do
         @frontmatter_only = true
+      end
+      parser.on("-a", "--all", "Extract everything, override config defaults for blocks-only/frontmatter-only") do
+        @blocks_only = false
+        @frontmatter_only = false
       end
       parser.on("--array-fields=FIELDS", "Normalize fields to arrays (comma-separated)") do |fields|
         @array_fields = fields.split(",").map(&.strip)

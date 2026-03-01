@@ -291,7 +291,7 @@ end
 # ----------------------------------------------------------------------
 if __FILE__ == $PROGRAM_NAME
   class GrubberCLI
-    VERSION = '0.4.1'
+    VERSION = '0.5'
 
     def self.run(args)
       # Shortcut for global help/version without a command
@@ -356,6 +356,11 @@ if __FILE__ == $PROGRAM_NAME
 
         opts.on("-m", "--frontmatter-only", "Only extract frontmatter, ignore YAML blocks") do
           cli.frontmatter_only = true
+        end
+
+        opts.on("-a", "--all", "Extract everything, override config defaults for blocks-only/frontmatter-only") do
+          cli.blocks_only = false
+          cli.frontmatter_only = false
         end
 
         opts.on("--array-fields FIELDS", Array, "Normalize fields to arrays (comma-separated)") do |list|
