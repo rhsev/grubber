@@ -98,10 +98,11 @@ module DataGrubber
   class Grubber
     attr_reader :notes_dir
 
-    def initialize(notes_dir, blocks_only: false, frontmatter_only: false, array_fields: [], filters: [])
+    def initialize(notes_dir, blocks_only: false, frontmatter_only: false, use_mmd: false, array_fields: [], filters: [])
       @notes_dir = File.expand_path(notes_dir)
       @blocks_only = blocks_only
       @frontmatter_only = frontmatter_only
+      @use_mmd = use_mmd
       @array_fields = array_fields.map(&:to_s)
       @filter = filters.empty? ? nil : Filter.new(filters)
       raise "Directory not found: #{@notes_dir}" unless Dir.exist?(@notes_dir)
@@ -130,6 +131,7 @@ module DataGrubber
         end
       end
       
+      records.sort_by! { |r| r['_note_file'] || '' }
       { records: records, keys: all_keys.to_a.sort }
     end
     
@@ -185,6 +187,8 @@ module DataGrubber
       if frontmatter_match
         frontmatter = parse_yaml_string(frontmatter_match[1])
         body = frontmatter_match.post_match
+      elsif @use_mmd
+        frontmatter, body = parse_mmd_header(content)
       else
         frontmatter = {}
         body = content
@@ -281,6 +285,40 @@ module DataGrubber
         obj
       end
     end
+
+    # Parse MultiMarkdown metadata header
+    # Key: Value pairs at the start of the file, ending at first blank line.
+    # Indented continuation lines are appended to the previous value.
+    def parse_mmd_header(content)
+      metadata = {}
+      lines = content.lines
+      last_key = ''
+      header_end = 0
+
+      lines.each_with_index do |line, i|
+        stripped = line.chomp
+        if stripped.strip.empty?
+          header_end = i + 1
+          break
+        end
+
+        if stripped.start_with?(' ', "\t")
+          if !last_key.empty? && metadata[last_key]
+            metadata[last_key] = metadata[last_key] + "\n" + stripped.strip
+          end
+        elsif (colon_pos = stripped.index(':'))
+          key = stripped[0...colon_pos].strip.downcase.gsub(' ', '_')
+          value = stripped[(colon_pos + 1)..].strip
+          metadata[key] = value
+          last_key = key
+        else
+          return [{}, content]
+        end
+      end
+
+      body = lines[header_end..].join
+      [metadata, body]
+    end
   end
 end
 
@@ -291,7 +329,7 @@ end
 # ----------------------------------------------------------------------
 if __FILE__ == $PROGRAM_NAME
   class GrubberCLI
-    VERSION = '0.5'
+    VERSION = '0.6'
 
     def self.run(args)
       # Shortcut for global help/version without a command
@@ -328,6 +366,7 @@ if __FILE__ == $PROGRAM_NAME
       cli.format = nil
       cli.blocks_only = nil
       cli.frontmatter_only = nil
+      cli.use_mmd = nil
       cli.array_fields = nil
       cli.filters = []  # Filters accumulate, so start with empty array
       cli.set_name = nil
@@ -361,6 +400,10 @@ if __FILE__ == $PROGRAM_NAME
         opts.on("-a", "--all", "Extract everything, override config defaults for blocks-only/frontmatter-only") do
           cli.blocks_only = false
           cli.frontmatter_only = false
+        end
+
+        opts.on("--mmd", "Also parse MultiMarkdown metadata headers") do
+          cli.use_mmd = true
         end
 
         opts.on("--array-fields FIELDS", Array, "Normalize fields to arrays (comma-separated)") do |list|
@@ -441,6 +484,14 @@ if __FILE__ == $PROGRAM_NAME
         false
       )
 
+      options.use_mmd = pick.(
+        cli.use_mmd,
+        set_config['use_mmd'],
+        nil,
+        config.defaults['use_mmd'],
+        false
+      )
+
       options.array_fields = pick.(
         cli.array_fields,
         set_config['array_fields'],
@@ -464,6 +515,7 @@ if __FILE__ == $PROGRAM_NAME
           options.notes_dir,
           blocks_only: options.blocks_only,
           frontmatter_only: options.frontmatter_only,
+          use_mmd: options.use_mmd,
           array_fields: options.array_fields,
           filters: options.filters
         )

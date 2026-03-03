@@ -214,6 +214,7 @@ CLI flags > Config set > Environment variables > Config defaults > Built-in defa
 -m, --frontmatter-only    Only extract frontmatter
 -a, --all                 Extract everything, override config defaults
     --array-fields FIELDS Normalize fields to arrays (comma-separated)
+    --mmd                 Also read MultiMarkdown metadata headers
 -f, --filter EXPR         Filter records (repeatable)
 -h, --help                Show help
 ```

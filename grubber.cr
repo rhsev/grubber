@@ -3,7 +3,7 @@ require "json"
 require "option_parser"
 
 module DataGrubber
-  VERSION       = "0.5"
+  VERSION       = "0.6"
   CONFIG_PATH   = Path.home.join(".config/grubber/config.yaml").to_s
 
   FRONTMATTER_REGEX = /\A---\n(.*?)\n---\n/m
@@ -138,11 +138,13 @@ module DataGrubber
     getter notes_dir : String
     getter blocks_only : Bool
     getter frontmatter_only : Bool
+    getter use_mmd : Bool
     getter array_fields : Array(String)
     @filter : Filter?
 
     def initialize(@notes_dir : String, @blocks_only : Bool = false,
                    @frontmatter_only : Bool = false,
+                   @use_mmd : Bool = false,
                    @array_fields : Array(String) = [] of String,
                    filters : Array(String) = [] of String)
       @notes_dir = File.expand_path(@notes_dir)
@@ -151,22 +153,60 @@ module DataGrubber
     end
 
     def extract(files : Array(String)? = nil) : {records: Array(Record), keys: Array(String)}
+      files_to_process = files || markdown_files
       records = [] of Record
       all_keys = Set(String).new
-      files_to_process = files || markdown_files
 
-      files_to_process.each do |file|
-        note = parse_note(file)
-        note[:records].each do |record|
-          flat_record = note[:metadata].merge(record)
-          flat_record = normalize_arrays(flat_record) unless @array_fields.empty?
-          if filter = @filter
-            next unless filter.match?(flat_record)
+      worker_count = System.cpu_count
+      file_channel = Channel(String?).new
+      result_channel = Channel(Array(Record)).new
+
+      # 1. Spawn workers
+      worker_count.times do
+        spawn do
+          loop do
+            file_path = file_channel.receive
+            break unless file_path
+
+            begin
+              note = parse_note(file_path)
+              file_records = [] of Record
+
+              note[:records].each do |rec|
+                flat_record = note[:metadata].merge(rec)
+                flat_record = normalize_arrays(flat_record) unless @array_fields.empty?
+
+                if filter = @filter
+                  next unless filter.match?(flat_record)
+                end
+                file_records << flat_record
+              end
+              result_channel.send(file_records)
+            rescue ex
+              STDERR.puts "Error processing #{file_path}: #{ex.message}"
+              result_channel.send([] of Record)
+            end
           end
-          records << flat_record
-          flat_record.keys.each { |k| all_keys << k }
         end
       end
+
+      # 2. Feed files to workers
+      spawn do
+        files_to_process.each { |f| file_channel.send(f) }
+        worker_count.times { file_channel.send(nil) }
+      end
+
+      # 3. Collect results
+      files_to_process.size.times do
+        file_results = result_channel.receive
+        file_results.each do |r|
+          records << r
+          r.keys.each { |k| all_keys << k }
+        end
+      end
+
+      # Sort by _note_file for deterministic output
+      records.sort_by! { |r| r["_note_file"]?.try(&.as_s) || "" }
 
       {records: records, keys: all_keys.to_a.sort}
     end
@@ -209,6 +249,8 @@ module DataGrubber
       if frontmatter_match
         frontmatter = parse_yaml_string(frontmatter_match[1])
         body = frontmatter_match.post_match
+      elsif @use_mmd
+        frontmatter, body = parse_mmd_header(content)
       else
         frontmatter = Record.new
         body = content
@@ -299,6 +341,42 @@ module DataGrubber
 
       result
     end
+
+    # Parse MultiMarkdown metadata header
+    # Key: Value pairs at the start of the file, ending at first blank line.
+    # Indented continuation lines are appended to the previous value.
+    private def parse_mmd_header(content : String) : {Record, String}
+      metadata = Record.new
+      lines = content.split("\n")
+      last_key = ""
+      header_end = 0
+
+      lines.each_with_index do |line, i|
+        if line.strip.empty?
+          header_end = i + 1
+          break
+        end
+
+        if line.starts_with?(" ") || line.starts_with?("\t")
+          # Continuation line — append to last key
+          if !last_key.empty? && metadata[last_key]?
+            existing = metadata[last_key].as_s? || ""
+            metadata[last_key] = YAML::Any.new(existing + "\n" + line.strip)
+          end
+        elsif (colon_pos = line.index(':'))
+          key = line[0...colon_pos].strip.downcase.gsub(" ", "_")
+          value = line[(colon_pos + 1)..].strip
+          metadata[key] = YAML::Any.new(value)
+          last_key = key
+        else
+          # Not a valid MMD header line — treat entire content as body
+          return {Record.new, content}
+        end
+      end
+
+      body = lines[header_end..].join("\n")
+      {metadata, body}
+    end
   end
 end
 
@@ -308,6 +386,7 @@ class GrubberCLI
   property format : String? = nil
   property blocks_only : Bool? = nil
   property frontmatter_only : Bool? = nil
+  property use_mmd : Bool? = nil
   property array_fields : Array(String)? = nil
   property filters : Array(String) = [] of String
   property set_name : String? = nil
@@ -360,6 +439,9 @@ class GrubberCLI
       parser.on("-a", "--all", "Extract everything, override config defaults for blocks-only/frontmatter-only") do
         @blocks_only = false
         @frontmatter_only = false
+      end
+      parser.on("--mmd", "Also parse MultiMarkdown metadata headers") do
+        @use_mmd = true
       end
       parser.on("--array-fields=FIELDS", "Normalize fields to arrays (comma-separated)") do |fields|
         @array_fields = fields.split(",").map(&.strip)
@@ -415,6 +497,12 @@ class GrubberCLI
     end
     final_frontmatter_only ||= false
 
+    final_use_mmd = @use_mmd
+    if final_use_mmd.nil?
+      final_use_mmd = set_config["use_mmd"]?.try(&.as_bool?)
+    end
+    final_use_mmd ||= false
+
     final_array_fields = @array_fields ||
                          set_config["array_fields"]?.try(&.as_a.map(&.as_s)) ||
                          ENV["GRUBBER_ARRAY_FIELDS"]?.try(&.split(",").map(&.strip)) ||
@@ -424,7 +512,7 @@ class GrubberCLI
     set_filters = set_config["filters"]?.try(&.as_a.map(&.as_s)) || [] of String
     final_filters = (config.default_filters + set_filters + @filters).uniq
 
-    grubber = DataGrubber::Grubber.new(final_notes_dir, final_blocks_only, final_frontmatter_only, final_array_fields, final_filters)
+    grubber = DataGrubber::Grubber.new(final_notes_dir, final_blocks_only, final_frontmatter_only, final_use_mmd, final_array_fields, final_filters)
     result = grubber.extract
 
     if result[:records].empty?
@@ -486,6 +574,8 @@ class GrubberCLI
       --format=FORMAT         Output format: json (default) or tsv
       -b, --blocks-only       Only extract YAML blocks, ignore frontmatter-only notes
       -m, --frontmatter-only  Only extract frontmatter, ignore YAML blocks
+      -a, --all               Extract everything, override config defaults
+      --mmd                   Also parse MultiMarkdown metadata headers
       --array-fields=FIELDS   Normalize fields to arrays (comma-separated)
       -f, --filter=EXPR       Filter records (can be used multiple times)
                               Operators: = (equals), ~ (contains), ^ (starts with), ! (not equals)
