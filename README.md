@@ -239,6 +239,10 @@ See [examples/SCHEMA.md](examples/SCHEMA.md) for an example schema.
 - Dates are output as strings (`YYYY-MM-DD`) for safe JSON serialization.
 - Schema-agnostic. grubber extracts whatever YAML it finds. Field names and record types are up to you.
 
+## See also
+
+[matterbase](https://github.com/rhsev/matterbase) — a terminal UI built on top of grubber. Its [ARCHITECTURE.md](https://github.com/rhsev/matterbase/blob/main/ARCHITECTURE.md) also covers grubber's role in the overall stack.
+
 ## License
 
 MIT
