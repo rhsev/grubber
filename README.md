@@ -84,7 +84,7 @@ grubber extract ~/notes -f "type=project" --format tsv
 Structured data and the context around it usually live in different places. A database for the fields, a wiki or folder for the notes. grubber keeps them together: queryable YAML blocks inside Markdown files. The data stays where you read and write it.
 
 - Standard Markdown. Any editor or renderer handles the format correctly. grubber just adds a read layer on top.
-- Fast enough to skip the database. 1,000 files in under 0.5s (Ruby) or under 15ms (Crystal, multi-threaded). No index, no daemon, no setup.
+- Fast enough to skip the database. 1,000 files in under 0.2s (Ruby) or under 50ms (Crystal). No index, no daemon, no setup.
 - Only structure what you query. Put queryable fields in YAML blocks. Everything else stays in plain Markdown. This includes addresses, serial numbers, or meeting notes. If you'd never filter by it, don't put it in a code block.
 
 ### vs. databases
