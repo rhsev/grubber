@@ -273,11 +273,13 @@ module DataGrubber
       metadata = frontmatter.dup
       metadata["_note_file"] = YAML::Any.new(file_path)
 
-      if records.empty? && !@blocks_only && !@frontmatter_only
+      has_frontmatter = frontmatter.any? { |k, _| k != "_note_file" }
+
+      if records.empty? && !@blocks_only && !@frontmatter_only && has_frontmatter
         records = [Record.new]
       end
 
-      if records.empty? && @frontmatter_only
+      if records.empty? && @frontmatter_only && has_frontmatter
         records = [Record.new]
       end
 

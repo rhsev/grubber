@@ -212,11 +212,13 @@ module DataGrubber
     def build_result(file_path, frontmatter, records)
       metadata = frontmatter.merge('_note_file' => file_path)
 
-      if records.empty? && !@blocks_only && !@frontmatter_only
+      has_frontmatter = frontmatter.any? { |k, _| k != '_note_file' }
+
+      if records.empty? && !@blocks_only && !@frontmatter_only && has_frontmatter
         records = [{}]
       end
 
-      if records.empty? && @frontmatter_only
+      if records.empty? && @frontmatter_only && has_frontmatter
         records = [{}]
       end
 
