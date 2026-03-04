@@ -63,7 +63,7 @@ cp grubber /usr/local/bin/
 
 ### Crystal (optional)
 
-A version written in the Crystal programming language is included. Crystal is a compiled language with a Ruby-like syntax. It produces a standalone binary with zero interpreter startup time, uses a multi-threaded worker pool, and outputs records in deterministic order sorted by file path.
+A version written in the Crystal programming language is included. Crystal is a compiled language with a Ruby-like syntax. It produces a standalone binary with zero interpreter startup time, uses a multi-threaded worker pool, and outputs records in deterministic order sorted by filename.
 
 ```sh
 crystal build grubber.cr -o grubber_crystal --release
