@@ -206,7 +206,7 @@ module DataGrubber
       end
 
       # Sort by _note_file for deterministic output
-      records.sort_by! { |r| r["_note_file"]?.try(&.as_s) || "" }
+      records.sort_by! { |r| File.basename(r["_note_file"]?.try(&.as_s) || "") }
 
       {records: records, keys: all_keys.to_a.sort}
     end

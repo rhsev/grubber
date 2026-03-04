@@ -131,7 +131,7 @@ module DataGrubber
         end
       end
       
-      records.sort_by! { |r| r['_note_file'] || '' }
+      records.sort_by! { |r| File.basename(r['_note_file'] || '') }
       { records: records, keys: all_keys.to_a.sort }
     end
     
