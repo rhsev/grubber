@@ -142,14 +142,19 @@ module DataGrubber
     getter array_fields : Array(String)
     @filter : Filter?
 
+    @depth : Int32?
+    @single_file : Bool
+
     def initialize(@notes_dir : String, @blocks_only : Bool = false,
                    @frontmatter_only : Bool = false,
                    @use_mmd : Bool = false,
+                   @depth : Int32? = nil,
                    @array_fields : Array(String) = [] of String,
                    filters : Array(String) = [] of String)
       @notes_dir = File.expand_path(@notes_dir)
       @filter = filters.empty? ? nil : Filter.new(filters)
-      raise "Directory not found: #{@notes_dir}" unless Dir.exists?(@notes_dir)
+      @single_file = File.file?(@notes_dir)
+      raise "Not found: #{@notes_dir}" unless @single_file || Dir.exists?(@notes_dir)
     end
 
     def extract(files : Array(String)? = nil) : {records: Array(Record), keys: Array(String)}
@@ -238,7 +243,14 @@ module DataGrubber
     end
 
     private def markdown_files : Array(String)
-      Dir.glob("#{@notes_dir}/**/*.md")
+      return [@notes_dir] if @single_file
+      if depth = @depth
+        (0..depth).flat_map do |d|
+          Dir.glob("#{@notes_dir}/#{"*/" * d}*.md")
+        end
+      else
+        Dir.glob("#{@notes_dir}/**/*.md")
+      end
     end
 
     private def parse_note(file_path : String)
@@ -389,6 +401,7 @@ class GrubberCLI
   property blocks_only : Bool? = nil
   property frontmatter_only : Bool? = nil
   property use_mmd : Bool? = nil
+  property depth : Int32? = nil
   property array_fields : Array(String)? = nil
   property filters : Array(String) = [] of String
   property set_name : String? = nil
@@ -445,6 +458,9 @@ class GrubberCLI
       parser.on("--mmd", "Also parse MultiMarkdown metadata headers") do
         @use_mmd = true
       end
+      parser.on("-d N", "--depth=N", "Limit directory recursion depth (0 = no subdirectories)") do |n|
+        @depth = n.to_i
+      end
       parser.on("--array-fields=FIELDS", "Normalize fields to arrays (comma-separated)") do |fields|
         @array_fields = fields.split(",").map(&.strip)
       end
@@ -456,7 +472,7 @@ class GrubberCLI
         exit 0
       end
       parser.unknown_args do |remaining|
-        if remaining.size > 0 && Dir.exists?(remaining[0])
+        if remaining.size > 0 && (Dir.exists?(remaining[0]) || File.file?(remaining[0]))
           @notes_dir = remaining[0]
         end
       end
@@ -505,6 +521,11 @@ class GrubberCLI
     end
     final_use_mmd ||= false
 
+    final_depth = @depth
+    if final_depth.nil?
+      final_depth = set_config["depth"]?.try(&.as_i?)
+    end
+
     final_array_fields = @array_fields ||
                          set_config["array_fields"]?.try(&.as_a.map(&.as_s)) ||
                          ENV["GRUBBER_ARRAY_FIELDS"]?.try(&.split(",").map(&.strip)) ||
@@ -514,7 +535,7 @@ class GrubberCLI
     set_filters = set_config["filters"]?.try(&.as_a.map(&.as_s)) || [] of String
     final_filters = (config.default_filters + set_filters + @filters).uniq
 
-    grubber = DataGrubber::Grubber.new(final_notes_dir, final_blocks_only, final_frontmatter_only, final_use_mmd, final_array_fields, final_filters)
+    grubber = DataGrubber::Grubber.new(final_notes_dir, final_blocks_only, final_frontmatter_only, final_use_mmd, final_depth, final_array_fields, final_filters)
     result = grubber.extract
 
     if result[:records].empty?

@@ -98,14 +98,16 @@ module DataGrubber
   class Grubber
     attr_reader :notes_dir
 
-    def initialize(notes_dir, blocks_only: false, frontmatter_only: false, use_mmd: false, array_fields: [], filters: [])
+    def initialize(notes_dir, blocks_only: false, frontmatter_only: false, use_mmd: false, depth: nil, array_fields: [], filters: [])
       @notes_dir = File.expand_path(notes_dir)
       @blocks_only = blocks_only
       @frontmatter_only = frontmatter_only
       @use_mmd = use_mmd
+      @depth = depth
       @array_fields = array_fields.map(&:to_s)
       @filter = filters.empty? ? nil : Filter.new(filters)
-      raise "Directory not found: #{@notes_dir}" unless Dir.exist?(@notes_dir)
+      @single_file = File.file?(@notes_dir)
+      raise "Not found: #{@notes_dir}" unless @single_file || Dir.exist?(@notes_dir)
     end
     
     # Extract all YAML records from all Markdown files
@@ -167,9 +169,16 @@ module DataGrubber
     
     private
     
-    # Find all .md files in directory (recursive)
+    # Find .md files, respecting depth limit
     def markdown_files
-      Dir.glob("#{@notes_dir}/**/*.md")
+      return [@notes_dir] if @single_file
+      if @depth.nil?
+        Dir.glob("#{@notes_dir}/**/*.md")
+      else
+        (0..@depth).flat_map do |d|
+          Dir.glob("#{@notes_dir}/#{'*/' * d}*.md")
+        end
+      end
     end
     
     # Compiled regex patterns for performance
@@ -369,6 +378,7 @@ if __FILE__ == $PROGRAM_NAME
       cli.blocks_only = nil
       cli.frontmatter_only = nil
       cli.use_mmd = nil
+      cli.depth = nil
       cli.array_fields = nil
       cli.filters = []  # Filters accumulate, so start with empty array
       cli.set_name = nil
@@ -406,6 +416,10 @@ if __FILE__ == $PROGRAM_NAME
 
         opts.on("--mmd", "Also parse MultiMarkdown metadata headers") do
           cli.use_mmd = true
+        end
+
+        opts.on("-d", "--depth N", Integer, "Limit directory recursion depth (0 = no subdirectories)") do |n|
+          cli.depth = n
         end
 
         opts.on("--array-fields FIELDS", Array, "Normalize fields to arrays (comma-separated)") do |list|
@@ -494,6 +508,14 @@ if __FILE__ == $PROGRAM_NAME
         false
       )
 
+      options.depth = pick.(
+        cli.depth,
+        set_config['depth'],
+        nil,
+        config.defaults['depth'],
+        nil
+      )
+
       options.array_fields = pick.(
         cli.array_fields,
         set_config['array_fields'],
@@ -518,6 +540,7 @@ if __FILE__ == $PROGRAM_NAME
           blocks_only: options.blocks_only,
           frontmatter_only: options.frontmatter_only,
           use_mmd: options.use_mmd,
+          depth: options.depth,
           array_fields: options.array_fields,
           filters: options.filters
         )

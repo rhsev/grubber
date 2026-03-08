@@ -77,6 +77,7 @@ Pre-built binary for macOS (Apple Silicon) available under [Releases](https://gi
 ```sh
 grubber extract ~/notes
 grubber extract ~/notes -f "type=project" --format tsv
+grubber extract ~/notes/project.md
 ```
 
 ## Why
@@ -215,6 +216,7 @@ CLI flags > Config set > Environment variables > Config defaults > Built-in defa
 -a, --all                 Extract everything, override config defaults
     --array-fields FIELDS Normalize fields to arrays (comma-separated)
     --mmd                 Also read MultiMarkdown metadata headers
+-d, --depth N             Limit directory recursion depth (0 = no subdirectories)
 -f, --filter EXPR         Filter records (repeatable)
 -h, --help                Show help
 ```
