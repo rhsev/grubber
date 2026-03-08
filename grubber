@@ -340,7 +340,7 @@ end
 # ----------------------------------------------------------------------
 if __FILE__ == $PROGRAM_NAME
   class GrubberCLI
-    VERSION = '0.6'
+    VERSION = '0.7'
 
     def self.run(args)
       # Shortcut for global help/version without a command
