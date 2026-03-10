@@ -285,7 +285,8 @@ module DataGrubber
           
           # Check if this field should be normalized to array
           if @array_fields.include?(key) && v.is_a?(String)
-            hash[k] = [v]  # Convert string to array
+            parts = v.include?(',') ? v.split(',').map(&:strip).reject(&:empty?) : [v]
+            hash[k] = parts
           else
             hash[k] = normalize_arrays(v)  # Recurse for nested structures
           end

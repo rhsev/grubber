@@ -347,7 +347,13 @@ module DataGrubber
 
       record.each do |key, value|
         if @array_fields.includes?(key) && value.as_s?
-          result[key] = YAML::Any.new([value])
+          str = value.as_s
+          parts = if str.includes?(',')
+                    str.split(',').map(&.strip).reject(&.empty?).map { |p| YAML::Any.new(p) }
+                  else
+                    [value]
+                  end
+          result[key] = YAML::Any.new(parts)
         else
           result[key] = value
         end

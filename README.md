@@ -214,12 +214,14 @@ CLI flags > Config set > Environment variables > Config defaults > Built-in defa
 -b, --blocks-only         Only extract YAML blocks
 -m, --frontmatter-only    Only extract frontmatter
 -a, --all                 Extract everything, override config defaults
-    --array-fields FIELDS Normalize fields to arrays (comma-separated)
+    --array-fields FIELDS Normalize fields to arrays (splits comma-separated values)
     --mmd                 Also read MultiMarkdown metadata headers
 -d, --depth N             Limit directory recursion depth (0 = no subdirectories)
 -f, --filter EXPR         Filter records (repeatable)
 -h, --help                Show help
 ```
+
+`--array-fields` normalizes string values to arrays. Comma-separated strings like `a, b, c` are split into `["a", "b", "c"]`. YAML arrays are kept as-is. Values that contain commas as part of their meaning (e.g. `"Smith, John"`) should be written as a YAML array instead.
 
 ## How to structure your notes
 
