@@ -3,7 +3,7 @@ require "json"
 require "option_parser"
 
 module DataGrubber
-  VERSION       = "0.7"
+  VERSION       = "0.7.1"
   CONFIG_PATH   = Path.home.join(".config/grubber/config.yaml").to_s
 
   FRONTMATTER_REGEX = /\A---\n(.*?)\n---\n/m
