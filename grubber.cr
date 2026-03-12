@@ -3,7 +3,7 @@ require "json"
 require "option_parser"
 
 module DataGrubber
-  VERSION       = "0.7.1"
+  VERSION       = "0.7.2"
   CONFIG_PATH   = Path.home.join(".config/grubber/config.yaml").to_s
 
   FRONTMATTER_REGEX = /\A---\n(.*?)\n---\n/m
@@ -210,10 +210,20 @@ module DataGrubber
         end
       end
 
+      # Normalize: ensure all records have the same keys (fill missing with null)
+      all_keys_array = all_keys.to_a.sort
+      records.map! do |record|
+        normalized = Record.new
+        all_keys_array.each do |key|
+          normalized[key] = record[key]? || YAML::Any.new(nil)
+        end
+        normalized
+      end
+
       # Sort by _note_file for deterministic output
       records.sort_by! { |r| File.basename(r["_note_file"]?.try(&.as_s) || "") }
 
-      {records: records, keys: all_keys.to_a.sort}
+      {records: records, keys: all_keys_array}
     end
 
     def output_json(records : Array(Record), output : IO = STDOUT)
