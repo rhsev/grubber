@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -19,6 +20,7 @@ import (
 var (
 	frontmatterRe = regexp.MustCompile("(?s)^---\n(.*?)\n---\n")
 	yamlBlockRe   = regexp.MustCompile("(?s)```yaml\n(.*?)\n```")
+	yamlMarker    = []byte("```yaml")
 )
 
 type Record map[string]any
@@ -167,7 +169,7 @@ func (g *Grubber) processFile(path string) ([]Record, error) {
 			flat[k] = v
 		}
 		if len(g.arrayFields) > 0 {
-			flat = g.normalizeArrays(flat)
+			g.normalizeArrays(flat)
 		}
 		if g.filter != nil && !g.filter.Match(flat) {
 			continue
@@ -182,24 +184,25 @@ func (g *Grubber) parseNote(path string) (*noteResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	content := string(data)
 
 	var frontmatter Record
-	var body string
+	var body []byte
 
-	if m := frontmatterRe.FindStringSubmatch(content); m != nil {
+	if m := frontmatterRe.FindSubmatch(data); m != nil {
 		frontmatter = g.parseYAMLString(m[1])
-		body = content[len(m[0]):]
+		body = data[len(m[0]):]
 	} else if g.useMmd {
-		frontmatter, body = g.parseMmdHeader(content)
+		var bodyStr string
+		frontmatter, bodyStr = g.parseMmdHeader(string(data))
+		body = []byte(bodyStr)
 	} else {
-		body = content
+		body = data
 	}
 
 	if g.frontmatterOnly {
 		return g.buildResult(path, frontmatter, nil), nil
 	}
-	if !strings.Contains(body, "```yaml") {
+	if !bytes.Contains(body, yamlMarker) {
 		return g.buildResult(path, frontmatter, nil), nil
 	}
 
@@ -224,9 +227,9 @@ func (g *Grubber) buildResult(path string, frontmatter Record, yamlRecords []Rec
 	return &noteResult{metadata: metadata, records: records}
 }
 
-func (g *Grubber) parseYAMLString(content string) Record {
+func (g *Grubber) parseYAMLString(content []byte) Record {
 	var node yaml.Node
-	if err := yaml.Unmarshal([]byte(content), &node); err != nil {
+	if err := yaml.Unmarshal(content, &node); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Could not parse YAML: %v\n", err)
 		return nil
 	}
@@ -248,8 +251,8 @@ func (g *Grubber) parseYAMLString(content string) Record {
 	return result
 }
 
-func (g *Grubber) parseYAMLBlocks(body string) []Record {
-	matches := yamlBlockRe.FindAllStringSubmatch(body, -1)
+func (g *Grubber) parseYAMLBlocks(body []byte) []Record {
+	matches := yamlBlockRe.FindAllSubmatch(body, -1)
 	records := make([]Record, 0, len(matches))
 	for _, m := range matches {
 		if r := g.parseYAMLString(m[1]); len(r) > 0 {
@@ -291,30 +294,28 @@ func (g *Grubber) markdownFiles() ([]string, error) {
 	return files, err
 }
 
-func (g *Grubber) normalizeArrays(r Record) Record {
-	result := make(Record, len(r))
+func (g *Grubber) normalizeArrays(r Record) {
 	for k, v := range r {
-		if containsStr(g.arrayFields, k) {
-			if s, ok := v.(string); ok {
-				if strings.Contains(s, ",") {
-					parts := strings.Split(s, ",")
-					arr := make([]any, 0, len(parts))
-					for _, p := range parts {
-						if p = strings.TrimSpace(p); p != "" {
-							arr = append(arr, p)
-						}
-					}
-					result[k] = arr
-				} else {
-					// Single string value → wrap in array (Crystal-compatible)
-					result[k] = []any{v}
-				}
-				continue
-			}
+		if !containsStr(g.arrayFields, k) {
+			continue
 		}
-		result[k] = v
+		s, ok := v.(string)
+		if !ok {
+			continue
+		}
+		if strings.Contains(s, ",") {
+			parts := strings.Split(s, ",")
+			arr := make([]any, 0, len(parts))
+			for _, p := range parts {
+				if p = strings.TrimSpace(p); p != "" {
+					arr = append(arr, p)
+				}
+			}
+			r[k] = arr
+		} else {
+			r[k] = []any{v}
+		}
 	}
-	return result
 }
 
 func (g *Grubber) parseMmdHeader(content string) (Record, string) {
