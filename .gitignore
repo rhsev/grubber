@@ -1,5 +1,6 @@
 # Compiled binaries
-grubber_crystal
+grubber
+grubber-macos-arm64
 *.dwarf
 
 # macOS

@@ -34,16 +34,16 @@ Output (`grubber extract examples/`):
 ```json
 [
   {
-    "title": "Project Alpha",
-    "keywords": ["project"],
     "_note_file": "examples/project-alpha.md",
-    "type": "project",
+    "end": "2025-06-30",
+    "keywords": ["project"],
     "name": "Project Alpha",
     "org": "Northwind Corp",
-    "status": "active",
+    "owner": "Jane Smith",
     "start": "2025-01-15",
-    "end": "2025-06-30",
-    "owner": "Jane Smith"
+    "status": "active",
+    "title": "Project Alpha",
+    "type": "project"
   }
 ]
 ```
@@ -52,25 +52,14 @@ Frontmatter and YAML block are merged into one flat record. The prose stays in M
 
 ## Installation
 
-### Ruby
-
-No dependencies beyond stdlib. Requires Ruby 3.1+.
+Download the pre-built binary for macOS (Apple Silicon) from [Releases](https://github.com/rhsev/grubber/releases), or build from source:
 
 ```sh
-chmod +x grubber
+go build -o grubber .
 cp grubber /usr/local/bin/
 ```
 
-### Crystal (optional)
-
-A version written in the Crystal programming language is included. Crystal is a compiled language with a Ruby-like syntax. It produces a standalone binary with zero interpreter startup time, uses a multi-threaded worker pool, and outputs records in deterministic order sorted by filename.
-
-```sh
-crystal build grubber.cr -o grubber_crystal --release
-cp grubber_crystal /usr/local/bin/grubber
-```
-
-Pre-built binary for macOS (Apple Silicon) available under [Releases](https://github.com/rhsev/grubber/releases).
+Requires Go 1.22+.
 
 ### Quick start
 
@@ -85,8 +74,8 @@ grubber extract ~/notes/project.md
 Structured data and the context around it usually live in different places. A database for the fields, a wiki or folder for the notes. grubber keeps them together: queryable YAML blocks inside Markdown files. The data stays where you read and write it.
 
 - Standard Markdown. Any editor or renderer handles the format correctly. grubber just adds a read layer on top.
-- Fast enough to skip the database. 1,000 files in under 0.2s (Ruby) or under 50ms (Crystal). Well, actually it's 15ms. No index, no daemon, no setup.
-- Only structure what you query. Put queryable fields in YAML blocks. Everything else stays in plain Markdown. This includes addresses, serial numbers, or meeting notes. If you'd never filter by it, don't put it in a code block.
+- Fast enough to skip the database. 1,000 notes in under 30ms. No index, no daemon, no setup.
+- Only structure what you query. Put queryable fields in YAML blocks. Everything else stays in plain Markdown. If you'd never filter by it, don't put it in a code block.
 
 ### vs. databases
 
@@ -109,16 +98,6 @@ grubber trades live updates for tool independence. No proprietary query language
 grubber scans Markdown files for YAML frontmatter and fenced YAML code blocks, merges them into flat records, and outputs JSON or TSV. It does one thing: extract. All logic like filtering, sorting, or aggregating happens downstream with standard tools.
 
 Multiple YAML blocks per file produce multiple records, each inheriting the frontmatter fields. The YAML block holds queryable data. The prose around it is context that doesn't need to be queried.
-
-Available as a standalone CLI or as a Ruby library for use in other scripts:
-
-```ruby
-require_relative 'grubber'
-
-grubber = DataGrubber::Grubber.new('~/notes', blocks_only: true)
-result = grubber.extract
-result[:records].each { |r| puts r['name'] }
-```
 
 ## Usage
 
@@ -165,8 +144,8 @@ grubber outputs JSON by default, designed for piping. The downstream tool does t
 # jq: contracts expiring in 2025
 grubber extract ~/notes -f type=contract | jq '[.[] | select(.end | startswith("2025"))]'
 
-# nushell: sort contacts by last interaction
-grubber extract ~/notes -f type=person | from json | sort-by last_contact -r
+# sql (duckdb): sort contacts by last interaction
+grubber extract ~/notes -f type=person | duckdb -c "SELECT name, last_contact FROM read_json_auto('/dev/stdin') ORDER BY last_contact DESC"
 
 # miller: TSV processing
 grubber extract ~/notes --format tsv | mlr --tsv sort-by -nr amount
@@ -221,7 +200,7 @@ CLI flags > Config set > Environment variables > Config defaults > Built-in defa
 -h, --help                Show help
 ```
 
-`--array-fields` normalizes string values to arrays. Comma-separated strings like `a, b, c` are split into `["a", "b", "c"]`. YAML arrays are kept as-is. Values that contain commas as part of their meaning (e.g. `"Smith, John"`) should be written as a YAML array instead.
+`--array-fields` normalizes string values to arrays. Comma-separated strings like `a, b, c` are split into `["a", "b", "c"]`. YAML arrays are kept as-is. Single string values in array fields are wrapped in a one-element array. Values that contain commas as part of their meaning (e.g. `"Smith, John"`) should be written as a YAML array instead.
 
 ## How to structure your notes
 
@@ -233,9 +212,18 @@ grubber reads two things from a Markdown file: YAML frontmatter and fenced YAML 
 - On field name collision, the YAML block wins over frontmatter.
 - Notes without YAML blocks are extracted as frontmatter-only records (unless `--blocks-only`).
 - A `_note_file` field is added automatically to every record for traceability.
-- grubber scans directories recursively. Every `.md` file is included.
+- grubber scans directories recursively. Hidden directories (starting with `.`) are skipped.
 
 See [examples/SCHEMA.md](examples/SCHEMA.md) for an example schema.
+
+## YAML notes
+
+grubber follows YAML 1.2. Values that look like numbers are parsed as numbers. If you want a value like a phone number or ID with a leading zero to remain a string, quote it explicitly:
+
+```yaml
+number: "01622502904"   # string
+number: 01622502904     # parsed as a number
+```
 
 ## Design
 
@@ -243,6 +231,7 @@ See [examples/SCHEMA.md](examples/SCHEMA.md) for an example schema.
 - Valid Markdown. The format doesn't break any renderer. grubber adds a queryable layer on top.
 - Dates are output as strings (`YYYY-MM-DD`) for safe JSON serialization.
 - Schema-agnostic. grubber extracts whatever YAML it finds. Field names and record types are up to you.
+- JSON keys are sorted alphabetically for deterministic output.
 
 ## See also
 

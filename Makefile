@@ -1,26 +1,13 @@
-.PHONY: build clean test benchmark
+.PHONY: build release clean benchmark
 
-# Default: build Crystal binary
-build: grubber_crystal
+build:
+	go build -o grubber .
 
-# Build optimized Crystal binary
-grubber_crystal: grubber.cr
-	crystal build grubber.cr -o grubber_crystal --release
+release:
+	GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o grubber-macos-arm64 .
 
-# Development build (faster compile, slower runtime)
-dev: grubber.cr
-	crystal build grubber.cr -o grubber_crystal
-
-# Clean build artifacts
 clean:
-	rm -f grubber_crystal
+	rm -f grubber grubber-macos-arm64
 
-# Run both versions for comparison
-test:
-	@echo "=== Ruby ===" && ./grubber extract . --blocks-only 2>/dev/null | head -20
-	@echo "\n=== Crystal ===" && ./grubber_crystal extract . --blocks-only 2>/dev/null | head -20
-
-# Benchmark both versions
 benchmark:
-	@echo "Ruby:" && time ./grubber extract $(GRUBBER_NOTES) > /dev/null 2>&1
-	@echo "Crystal:" && time ./grubber_crystal extract $(GRUBBER_NOTES) > /dev/null 2>&1
+	go build -o grubber . && hyperfine --warmup 3 './grubber extract $(GRUBBER_NOTES) -o /dev/null'
