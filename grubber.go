@@ -35,13 +35,15 @@ type Grubber struct {
 	blocksOnly      bool
 	frontmatterOnly bool
 	useMmd          bool
+	noFill          bool
 	depth           *int
+	workers         int
 	arrayFields     []string
 	filter          *Filter
 	singleFile      bool
 }
 
-func NewGrubber(notesDir string, blocksOnly, frontmatterOnly, useMmd bool, depth *int, arrayFields, filters []string) (*Grubber, error) {
+func NewGrubber(notesDir string, blocksOnly, frontmatterOnly, useMmd, noFill bool, depth *int, workers int, arrayFields, filters []string) (*Grubber, error) {
 	expanded, err := expandPath(notesDir)
 	if err != nil {
 		return nil, fmt.Errorf("could not resolve path: %w", err)
@@ -62,11 +64,54 @@ func NewGrubber(notesDir string, blocksOnly, frontmatterOnly, useMmd bool, depth
 		blocksOnly:      blocksOnly,
 		frontmatterOnly: frontmatterOnly,
 		useMmd:          useMmd,
+		noFill:          noFill,
 		depth:           depth,
+		workers:         workers,
 		arrayFields:     arrayFields,
 		filter:          f,
 		singleFile:      !info.IsDir(),
 	}, nil
+}
+
+func (g *Grubber) workerCount() int {
+	if g.workers > 0 {
+		return g.workers
+	}
+	return runtime.NumCPU()
+}
+
+func (g *Grubber) processFiles(files []string) <-chan []Record {
+	wc := g.workerCount()
+	fileCh := make(chan string, wc)
+	resultCh := make(chan []Record)
+
+	var wg sync.WaitGroup
+	for range wc {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for path := range fileCh {
+				records, err := g.processFile(path)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Error processing %s: %v\n", path, err)
+					resultCh <- nil
+					continue
+				}
+				resultCh <- records
+			}
+		}()
+	}
+	go func() {
+		for _, f := range files {
+			fileCh <- f
+		}
+		close(fileCh)
+	}()
+	go func() {
+		wg.Wait()
+		close(resultCh)
+	}()
+	return resultCh
 }
 
 func (g *Grubber) Extract(files []string) (records []Record, keys []string, err error) {
@@ -80,63 +125,36 @@ func (g *Grubber) Extract(files []string) (records []Record, keys []string, err 
 		return nil, nil, nil
 	}
 
-	workerCount := runtime.NumCPU()
-	fileCh := make(chan string, workerCount)
-	resultCh := make(chan []Record)
-
-	var wg sync.WaitGroup
-	for range workerCount {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for path := range fileCh {
-				fileRecords, e := g.processFile(path)
-				if e != nil {
-					fmt.Fprintf(os.Stderr, "Error processing %s: %v\n", path, e)
-					resultCh <- nil
-					continue
-				}
-				resultCh <- fileRecords
-			}
-		}()
+	var allKeys map[string]struct{}
+	if !g.noFill {
+		allKeys = make(map[string]struct{})
 	}
-
-	go func() {
-		for _, f := range files {
-			fileCh <- f
-		}
-		close(fileCh)
-	}()
-
-	go func() {
-		wg.Wait()
-		close(resultCh)
-	}()
-
-	allKeys := make(map[string]struct{})
-	for fileRecords := range resultCh {
+	for fileRecords := range g.processFiles(files) {
 		for _, r := range fileRecords {
 			records = append(records, r)
-			for k := range r {
-				allKeys[k] = struct{}{}
+			if allKeys != nil {
+				for k := range r {
+					allKeys[k] = struct{}{}
+				}
 			}
 		}
 	}
 
-	keys = make([]string, 0, len(allKeys))
-	for k := range allKeys {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
+	if !g.noFill {
+		keys = make([]string, 0, len(allKeys))
+		for k := range allKeys {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
 
-	// Fill missing keys with nil for consistent schema
-	for i, r := range records {
-		if len(r) < len(keys) {
-			normalized := make(Record, len(keys))
-			for _, k := range keys {
-				normalized[k] = r[k]
+		for i, r := range records {
+			if len(r) < len(keys) {
+				normalized := make(Record, len(keys))
+				for _, k := range keys {
+					normalized[k] = r[k]
+				}
+				records[i] = normalized
 			}
-			records[i] = normalized
 		}
 	}
 
@@ -154,20 +172,45 @@ func (g *Grubber) Extract(files []string) (records []Record, keys []string, err 
 	return
 }
 
+// StreamNDJSON writes records as newline-delimited JSON as they are processed,
+// without buffering all records in memory first.
+func (g *Grubber) StreamNDJSON(w io.Writer) error {
+	files, err := g.markdownFiles()
+	if err != nil {
+		return err
+	}
+	enc := json.NewEncoder(w)
+	for fileRecords := range g.processFiles(files) {
+		for _, r := range fileRecords {
+			if err := enc.Encode(r); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func (g *Grubber) processFile(path string) ([]Record, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	mtime := info.ModTime().UTC().Format(time.RFC3339)
+
 	note, err := g.parseNote(path)
 	if err != nil {
 		return nil, err
 	}
 	var result []Record
 	for _, rec := range note.records {
-		flat := make(Record, len(note.metadata)+len(rec))
+		flat := make(Record, len(note.metadata)+len(rec)+1)
 		for k, v := range note.metadata {
 			flat[k] = v
 		}
 		for k, v := range rec {
 			flat[k] = v
 		}
+		flat["_mtime"] = mtime
 		if len(g.arrayFields) > 0 {
 			g.normalizeArrays(flat)
 		}

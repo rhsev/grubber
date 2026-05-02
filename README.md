@@ -147,6 +147,9 @@ grubber extract ~/notes -f type=contract | jq '[.[] | select(.end | startswith("
 # sql (duckdb): sort contacts by last interaction
 grubber extract ~/notes -f type=person | duckdb -c "SELECT name, last_contact FROM read_json_auto('/dev/stdin') ORDER BY last_contact DESC"
 
+# ndjson: stream into duckdb without buffering the full array
+grubber extract ~/notes --format ndjson --no-fill | duckdb -c "SELECT name, status FROM read_ndjson_auto('/dev/stdin')"
+
 # miller: TSV processing
 grubber extract ~/notes --format tsv | mlr --tsv sort-by -nr amount
 ```
@@ -189,13 +192,15 @@ CLI flags > Config set > Environment variables > Config defaults > Built-in defa
 ```
 -o, --output FILE         Write to file instead of stdout
 -s, --set NAME            Load options from config set
-    --format FORMAT       json (default) or tsv
+    --format FORMAT       json (default), tsv, or ndjson
 -b, --blocks-only         Only extract YAML blocks
 -m, --frontmatter-only    Only extract frontmatter
 -a, --all                 Extract everything, override config defaults
     --array-fields FIELDS Normalize fields to arrays (splits comma-separated values)
     --mmd                 Also read MultiMarkdown metadata headers
 -d, --depth N             Limit directory recursion depth (0 = no subdirectories)
+    --workers N           Number of parallel workers (default: NumCPU)
+    --no-fill             Skip nil-filling missing keys (useful for DuckDB)
 -f, --filter EXPR         Filter records (repeatable)
 -h, --help                Show help
 ```
@@ -212,6 +217,7 @@ grubber reads two things from a Markdown file: YAML frontmatter and fenced YAML 
 - On field name collision, the YAML block wins over frontmatter.
 - Notes without YAML blocks are extracted as frontmatter-only records (unless `--blocks-only`).
 - A `_note_file` field is added automatically to every record for traceability.
+- A `_mtime` field (RFC3339 UTC) is added automatically with the file's last-modified time.
 - grubber scans directories recursively. Hidden directories (starting with `.`) are skipped.
 
 See [examples/SCHEMA.md](examples/SCHEMA.md) for an example schema.

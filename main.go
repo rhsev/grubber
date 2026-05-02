@@ -43,6 +43,35 @@ func main() {
 	}
 }
 
+// reorderArgs moves positional args to the end so flags are parsed
+// regardless of whether they appear before or after the path argument.
+// boolFlags lists flag names that take no value (so the next token is not consumed).
+func reorderArgs(args []string, boolFlags map[string]bool) []string {
+	var flagArgs, posArgs []string
+	i := 0
+	for i < len(args) {
+		arg := args[i]
+		if !strings.HasPrefix(arg, "-") {
+			posArgs = append(posArgs, arg)
+			i++
+			continue
+		}
+		name := strings.TrimLeft(arg, "-")
+		if eq := strings.Index(name, "="); eq >= 0 {
+			name = name[:eq]
+		}
+		flagArgs = append(flagArgs, arg)
+		// If flag takes a value and next token isn't a flag, consume it as the value.
+		if !strings.Contains(arg, "=") && !boolFlags[name] && i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+			flagArgs = append(flagArgs, args[i+1])
+			i += 2
+		} else {
+			i++
+		}
+	}
+	return append(flagArgs, posArgs...)
+}
+
 func runExtract(args []string, pathOverride string) {
 	fs := flag.NewFlagSet("extract", flag.ExitOnError)
 	fs.Usage = printExtractHelp
@@ -55,7 +84,9 @@ func runExtract(args []string, pathOverride string) {
 		frontmatterOnly bool
 		allFlag         bool
 		useMmd          bool
+		noFill          bool
 		depth           int
+		workers         int
 		arrayFieldsStr  string
 		filters         multiFlag
 	)
@@ -64,20 +95,27 @@ func runExtract(args []string, pathOverride string) {
 	fs.StringVar(&outputFile, "output", "", "Write output to file")
 	fs.StringVar(&setName, "s", "", "Load options from config set")
 	fs.StringVar(&setName, "set", "", "Load options from config set")
-	fs.StringVar(&format, "format", "", "Output format: json (default) or tsv")
+	fs.StringVar(&format, "format", "", "Output format: json (default), tsv, or ndjson")
 	fs.BoolVar(&blocksOnly, "b", false, "Only extract YAML blocks")
 	fs.BoolVar(&blocksOnly, "blocks-only", false, "Only extract YAML blocks")
 	fs.BoolVar(&frontmatterOnly, "m", false, "Only extract frontmatter")
 	fs.BoolVar(&frontmatterOnly, "frontmatter-only", false, "Only extract frontmatter")
 	fs.BoolVar(&allFlag, "a", false, "Extract everything, override config defaults")
 	fs.BoolVar(&useMmd, "mmd", false, "Also parse MultiMarkdown metadata headers")
+	fs.BoolVar(&noFill, "no-fill", false, "Skip nil-filling missing keys (faster for duckdb)")
 	fs.IntVar(&depth, "d", -1, "Limit directory recursion depth")
 	fs.IntVar(&depth, "depth", -1, "Limit directory recursion depth")
+	fs.IntVar(&workers, "workers", 0, "Number of parallel workers (default: NumCPU)")
 	fs.StringVar(&arrayFieldsStr, "array-fields", "", "Normalize fields to arrays (comma-separated)")
 	fs.Var(&filters, "f", "Filter records (can be used multiple times)")
 	fs.Var(&filters, "filter", "Filter records (can be used multiple times)")
 
-	fs.Parse(args) //nolint:errcheck
+	boolFlags := map[string]bool{
+		"b": true, "blocks-only": true,
+		"m": true, "frontmatter-only": true,
+		"a": true, "mmd": true, "no-fill": true,
+	}
+	fs.Parse(reorderArgs(args, boolFlags)) //nolint:errcheck
 
 	// Detect which flags were explicitly provided
 	set := make(map[string]bool)
@@ -98,8 +136,10 @@ func runExtract(args []string, pathOverride string) {
 		allSet:             set["a"],
 		useMmd:             useMmd,
 		useMmdSet:          set["mmd"],
+		noFill:             noFill,
 		depth:              depth,
 		depthSet:           set["d"] || set["depth"],
+		workers:            workers,
 		arrayFieldsStr:     arrayFieldsStr,
 		filters:            []string(filters),
 		notesDir:           pathOverride,
@@ -117,8 +157,10 @@ type execOpts struct {
 	allSet             bool
 	useMmd             bool
 	useMmdSet          bool
+	noFill             bool
 	depth              int
 	depthSet           bool
+	workers            int
 	arrayFieldsStr     string
 	filters            []string
 	notesDir           string
@@ -201,21 +243,10 @@ func execute(opts execOpts) {
 
 	finalFilters := filters
 
-	g, err := NewGrubber(finalNotesDir, blocksOnly, frontmatterOnly, useMmd, depth, arrayFields, finalFilters)
+	g, err := NewGrubber(finalNotesDir, blocksOnly, frontmatterOnly, useMmd, opts.noFill, depth, opts.workers, arrayFields, finalFilters)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
-	}
-
-	records, keys, err := g.Extract(nil)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
-
-	if len(records) == 0 {
-		fmt.Fprintf(os.Stderr, "No YAML records found in %s\n", finalNotesDir)
-		os.Exit(0)
 	}
 
 	var out *os.File
@@ -228,6 +259,26 @@ func execute(opts execOpts) {
 		defer out.Close()
 	} else {
 		out = os.Stdout
+	}
+
+	// NDJSON streams directly without collecting all records first
+	if finalFormat == "ndjson" {
+		if err = g.StreamNDJSON(out); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	records, keys, err := g.Extract(nil)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	if len(records) == 0 {
+		fmt.Fprintf(os.Stderr, "No YAML records found in %s\n", finalNotesDir)
+		os.Exit(0)
 	}
 
 	switch finalFormat {
@@ -338,13 +389,15 @@ func printExtractHelp() {
 Options:
   -o, --output=FILE         Write output to file instead of stdout
   -s, --set=NAME            Load options from config set
-      --format=FORMAT       Output format: json (default) or tsv
+      --format=FORMAT       Output format: json (default), tsv, or ndjson
   -b, --blocks-only         Only extract YAML blocks, ignore frontmatter-only notes
   -m, --frontmatter-only    Only extract frontmatter, ignore YAML blocks
   -a, --all                 Extract everything, override config defaults
       --mmd                 Also parse MultiMarkdown metadata headers
   -d, --depth=N             Limit directory recursion depth (0 = no subdirectories)
+      --workers=N           Number of parallel workers (default: NumCPU)
       --array-fields=FIELDS Normalize fields to arrays (comma-separated)
+      --no-fill             Skip nil-filling missing keys (useful for DuckDB)
   -f, --filter=EXPR         Filter records (can be used multiple times)
                             Operators: = (equals), ~ (contains), ^ (starts with), ! (not equals)
                             Examples: type=vertrag, due^2025-02, name~versicher
