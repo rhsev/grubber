@@ -270,11 +270,42 @@ func (g *Grubber) buildResult(path string, frontmatter Record, yamlRecords []Rec
 	return &noteResult{metadata: metadata, records: records}
 }
 
+// parseYAMLLenient is a line-by-line fallback used when yaml.Unmarshal fails.
+// It extracts key: value pairs as raw strings, so type information is lost,
+// but the record is not dropped entirely.
+func parseYAMLLenient(content []byte) Record {
+	result := make(Record)
+	for _, rawLine := range bytes.Split(content, []byte("\n")) {
+		line := bytes.TrimSpace(rawLine)
+		if len(line) == 0 || line[0] == '#' {
+			continue
+		}
+		idx := bytes.IndexByte(line, ':')
+		if idx <= 0 {
+			continue
+		}
+		key := string(bytes.TrimSpace(line[:idx]))
+		val := string(bytes.TrimSpace(line[idx+1:]))
+		if key == "" {
+			continue
+		}
+		if val == "" {
+			result[key] = nil
+		} else {
+			result[key] = val
+		}
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
+}
+
 func (g *Grubber) parseYAMLString(content []byte) Record {
 	var node yaml.Node
 	if err := yaml.Unmarshal(content, &node); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: Could not parse YAML: %v\n", err)
-		return nil
+		fmt.Fprintf(os.Stderr, "Warning: YAML parse error, using line-by-line fallback: %v\n", err)
+		return parseYAMLLenient(content)
 	}
 	if node.Kind == 0 || len(node.Content) == 0 {
 		return nil
