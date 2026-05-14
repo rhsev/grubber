@@ -77,18 +77,19 @@ func runExtract(args []string, pathOverride string) {
 	fs.Usage = printExtractHelp
 
 	var (
-		outputFile      string
-		setName         string
-		format          string
-		blocksOnly      bool
+		outputFile     string
+		setName        string
+		format         string
+		blocksOnly     bool
 		frontmatterOnly bool
-		allFlag         bool
-		useMmd          bool
-		noFill          bool
-		depth           int
-		workers         int
-		arrayFieldsStr  string
-		filters         multiFlag
+		allFlag        bool
+		useMmd         bool
+		noFill         bool
+		depth          int
+		workers        int
+		arrayFieldsStr string
+		extensionsStr  string
+		filters        multiFlag
 	)
 
 	fs.StringVar(&outputFile, "o", "", "Write output to file")
@@ -107,6 +108,7 @@ func runExtract(args []string, pathOverride string) {
 	fs.IntVar(&depth, "depth", -1, "Limit directory recursion depth")
 	fs.IntVar(&workers, "workers", 0, "Number of parallel workers (default: NumCPU)")
 	fs.StringVar(&arrayFieldsStr, "array-fields", "", "Normalize fields to arrays (comma-separated)")
+	fs.StringVar(&extensionsStr, "extensions", "", "File extensions to scan (comma-separated, e.g. .md,.typ)")
 	fs.Var(&filters, "f", "Filter records (can be used multiple times)")
 	fs.Var(&filters, "filter", "Filter records (can be used multiple times)")
 
@@ -141,6 +143,7 @@ func runExtract(args []string, pathOverride string) {
 		depthSet:           set["d"] || set["depth"],
 		workers:            workers,
 		arrayFieldsStr:     arrayFieldsStr,
+		extensionsStr:      extensionsStr,
 		filters:            []string(filters),
 		notesDir:           pathOverride,
 	})
@@ -162,6 +165,7 @@ type execOpts struct {
 	depthSet           bool
 	workers            int
 	arrayFieldsStr     string
+	extensionsStr      string
 	filters            []string
 	notesDir           string
 }
@@ -241,9 +245,19 @@ func execute(opts execOpts) {
 		cfgStrSlice(setCfg, "filters")...,
 	), opts.filters...))
 
-	finalFilters := filters
+	// extensions: config default → set → env → CLI (nil = all registered parsers)
+	extensions := cfg.DefaultExtensions()
+	if exts := cfgStrSlice(setCfg, "extensions"); exts != nil {
+		extensions = exts
+	}
+	if env := os.Getenv("GRUBBER_EXTENSIONS"); env != "" {
+		extensions = splitTrim(env, ",")
+	}
+	if opts.extensionsStr != "" {
+		extensions = splitTrim(opts.extensionsStr, ",")
+	}
 
-	g, err := NewGrubber(finalNotesDir, blocksOnly, frontmatterOnly, useMmd, opts.noFill, depth, opts.workers, arrayFields, finalFilters)
+	g, err := NewGrubber(finalNotesDir, blocksOnly, frontmatterOnly, useMmd, opts.noFill, depth, opts.workers, arrayFields, filters, extensions)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -397,6 +411,7 @@ Options:
   -d, --depth=N             Limit directory recursion depth (0 = no subdirectories)
       --workers=N           Number of parallel workers (default: NumCPU)
       --array-fields=FIELDS Normalize fields to arrays (comma-separated)
+      --extensions=EXTS     File extensions to scan (comma-separated, default: all registered)
       --no-fill             Skip nil-filling missing keys (useful for DuckDB)
   -f, --filter=EXPR         Filter records (can be used multiple times)
                             Operators: = (equals), ~ (contains), ^ (starts with), ! (not equals)

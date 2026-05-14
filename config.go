@@ -79,6 +79,10 @@ func (c *Config) DefaultFilters() []string {
 	return toStringSlice(c.defaults["filters"])
 }
 
+func (c *Config) DefaultExtensions() []string {
+	return toStringSlice(c.defaults["extensions"])
+}
+
 func toStringSlice(v any) []string {
 	arr, ok := v.([]any)
 	if !ok {

@@ -1,26 +1,16 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"sort"
 	"strings"
 	"sync"
 	"time"
-
-	"gopkg.in/yaml.v3"
-)
-
-var (
-	frontmatterRe = regexp.MustCompile("(?s)^---\n(.*?)\n---\n")
-	yamlBlockRe   = regexp.MustCompile("(?s)```yaml\n(.*?)\n```")
-	yamlMarker    = []byte("```yaml")
 )
 
 type Record map[string]any
@@ -39,11 +29,12 @@ type Grubber struct {
 	depth           *int
 	workers         int
 	arrayFields     []string
+	extensions      []string
 	filter          *Filter
 	singleFile      bool
 }
 
-func NewGrubber(notesDir string, blocksOnly, frontmatterOnly, useMmd, noFill bool, depth *int, workers int, arrayFields, filters []string) (*Grubber, error) {
+func NewGrubber(notesDir string, blocksOnly, frontmatterOnly, useMmd, noFill bool, depth *int, workers int, arrayFields, filters, extensions []string) (*Grubber, error) {
 	expanded, err := expandPath(notesDir)
 	if err != nil {
 		return nil, fmt.Errorf("could not resolve path: %w", err)
@@ -59,6 +50,9 @@ func NewGrubber(notesDir string, blocksOnly, frontmatterOnly, useMmd, noFill boo
 			return nil, err
 		}
 	}
+	if len(extensions) == 0 {
+		extensions = registeredExtensions()
+	}
 	return &Grubber{
 		notesDir:        expanded,
 		blocksOnly:      blocksOnly,
@@ -68,6 +62,7 @@ func NewGrubber(notesDir string, blocksOnly, frontmatterOnly, useMmd, noFill boo
 		depth:           depth,
 		workers:         workers,
 		arrayFields:     arrayFields,
+		extensions:      extensions,
 		filter:          f,
 		singleFile:      !info.IsDir(),
 	}, nil
@@ -116,7 +111,7 @@ func (g *Grubber) processFiles(files []string) <-chan []Record {
 
 func (g *Grubber) Extract(files []string) (records []Record, keys []string, err error) {
 	if files == nil {
-		files, err = g.markdownFiles()
+		files, err = g.textFiles()
 		if err != nil {
 			return
 		}
@@ -158,7 +153,6 @@ func (g *Grubber) Extract(files []string) (records []Record, keys []string, err 
 		}
 	}
 
-	// Sort by _note_file basename for deterministic output
 	sort.SliceStable(records, func(i, j int) bool {
 		bi, bj := "", ""
 		if v, ok := records[i]["_note_file"].(string); ok {
@@ -175,7 +169,7 @@ func (g *Grubber) Extract(files []string) (records []Record, keys []string, err 
 // StreamNDJSON writes records as newline-delimited JSON as they are processed,
 // without buffering all records in memory first.
 func (g *Grubber) StreamNDJSON(w io.Writer) error {
-	files, err := g.markdownFiles()
+	files, err := g.textFiles()
 	if err != nil {
 		return err
 	}
@@ -228,28 +222,18 @@ func (g *Grubber) parseNote(path string) (*noteResult, error) {
 		return nil, err
 	}
 
-	var frontmatter Record
-	var body []byte
-
-	if m := frontmatterRe.FindSubmatch(data); m != nil {
-		frontmatter = g.parseYAMLString(m[1])
-		body = data[len(m[0]):]
-	} else if g.useMmd {
-		var bodyStr string
-		frontmatter, bodyStr = g.parseMmdHeader(string(data))
-		body = []byte(bodyStr)
-	} else {
-		body = data
+	ext := filepath.Ext(path)
+	parser, ok := parsers[ext]
+	if !ok {
+		return g.buildResult(path, nil, nil), nil
 	}
 
-	if g.frontmatterOnly {
-		return g.buildResult(path, frontmatter, nil), nil
+	opts := ParseOpts{UseMmd: g.useMmd, FrontmatterOnly: g.frontmatterOnly}
+	frontmatter, blocks, err := parser.Extract(path, data, opts)
+	if err != nil {
+		return nil, err
 	}
-	if !bytes.Contains(body, yamlMarker) {
-		return g.buildResult(path, frontmatter, nil), nil
-	}
-
-	return g.buildResult(path, frontmatter, g.parseYAMLBlocks(body)), nil
+	return g.buildResult(path, frontmatter, blocks), nil
 }
 
 func (g *Grubber) buildResult(path string, frontmatter Record, yamlRecords []Record) *noteResult {
@@ -270,88 +254,31 @@ func (g *Grubber) buildResult(path string, frontmatter Record, yamlRecords []Rec
 	return &noteResult{metadata: metadata, records: records}
 }
 
-// parseYAMLLenient is a line-by-line fallback used when yaml.Unmarshal fails.
-// It extracts key: value pairs as raw strings, so type information is lost,
-// but the record is not dropped entirely.
-func parseYAMLLenient(content []byte) Record {
-	result := make(Record)
-	for _, rawLine := range bytes.Split(content, []byte("\n")) {
-		line := bytes.TrimSpace(rawLine)
-		if len(line) == 0 || line[0] == '#' {
-			continue
-		}
-		idx := bytes.IndexByte(line, ':')
-		if idx <= 0 {
-			continue
-		}
-		key := string(bytes.TrimSpace(line[:idx]))
-		val := string(bytes.TrimSpace(line[idx+1:]))
-		if key == "" {
-			continue
-		}
-		if val == "" {
-			result[key] = nil
-		} else {
-			result[key] = val
-		}
-	}
-	if len(result) == 0 {
-		return nil
-	}
-	return result
-}
-
-func (g *Grubber) parseYAMLString(content []byte) Record {
-	var node yaml.Node
-	if err := yaml.Unmarshal(content, &node); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: YAML parse error, using line-by-line fallback: %v\n", err)
-		return parseYAMLLenient(content)
-	}
-	if node.Kind == 0 || len(node.Content) == 0 {
-		return nil
-	}
-	doc := node.Content[0]
-	if doc.Kind != yaml.MappingNode {
-		return nil
-	}
-	// Walk pairs manually: last-value-wins for duplicate keys
-	result := make(Record, len(doc.Content)/2)
-	for i := 0; i+1 < len(doc.Content); i += 2 {
-		key := doc.Content[i].Value
-		var val any
-		doc.Content[i+1].Decode(&val) //nolint:errcheck
-		result[key] = stringifyDates(val)
-	}
-	return result
-}
-
-func (g *Grubber) parseYAMLBlocks(body []byte) []Record {
-	matches := yamlBlockRe.FindAllSubmatch(body, -1)
-	records := make([]Record, 0, len(matches))
-	for _, m := range matches {
-		if r := g.parseYAMLString(m[1]); len(r) > 0 {
-			records = append(records, r)
-		}
-	}
-	return records
-}
-
-func (g *Grubber) markdownFiles() ([]string, error) {
+func (g *Grubber) textFiles() ([]string, error) {
 	if g.singleFile {
 		return []string{g.notesDir}, nil
 	}
+
+	extSet := make(map[string]bool, len(g.extensions))
+	for _, e := range g.extensions {
+		extSet[e] = true
+	}
+
 	if g.depth != nil {
 		var files []string
 		for d := range *g.depth + 1 {
-			pattern := g.notesDir + "/" + strings.Repeat("*/", d) + "*.md"
-			matches, err := filepath.Glob(pattern)
-			if err != nil {
-				return nil, err
+			for _, ext := range g.extensions {
+				pattern := g.notesDir + "/" + strings.Repeat("*/", d) + "*" + ext
+				matches, err := filepath.Glob(pattern)
+				if err != nil {
+					return nil, err
+				}
+				files = append(files, matches...)
 			}
-			files = append(files, matches...)
 		}
 		return files, nil
 	}
+
 	var files []string
 	err := filepath.WalkDir(g.notesDir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -360,7 +287,7 @@ func (g *Grubber) markdownFiles() ([]string, error) {
 		if d.IsDir() && strings.HasPrefix(d.Name(), ".") && path != g.notesDir {
 			return filepath.SkipDir
 		}
-		if !d.IsDir() && strings.HasSuffix(path, ".md") {
+		if !d.IsDir() && extSet[filepath.Ext(path)] {
 			files = append(files, path)
 		}
 		return nil
@@ -390,32 +317,6 @@ func (g *Grubber) normalizeArrays(r Record) {
 			r[k] = []any{v}
 		}
 	}
-}
-
-func (g *Grubber) parseMmdHeader(content string) (Record, string) {
-	metadata := make(Record)
-	lines := strings.Split(content, "\n")
-	lastKey := ""
-
-	for i, line := range lines {
-		if strings.TrimSpace(line) == "" {
-			return metadata, strings.Join(lines[i+1:], "\n")
-		}
-		if strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t") {
-			if lastKey != "" {
-				if existing, ok := metadata[lastKey].(string); ok {
-					metadata[lastKey] = existing + "\n" + strings.TrimSpace(line)
-				}
-			}
-		} else if idx := strings.Index(line, ":"); idx >= 0 {
-			key := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(line[:idx]), " ", "_"))
-			metadata[key] = strings.TrimSpace(line[idx+1:])
-			lastKey = key
-		} else {
-			return make(Record), content
-		}
-	}
-	return metadata, ""
 }
 
 func (g *Grubber) OutputJSON(records []Record, w io.Writer) error {
