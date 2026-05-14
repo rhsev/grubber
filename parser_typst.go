@@ -16,7 +16,12 @@ var typstDateRe = regexp.MustCompile(`datetime\(\s*year:\s*(\d+),\s*month:\s*(\d
 type typstParser struct{}
 
 func (p *typstParser) Extract(path string, data []byte, opts ParseOpts) (Record, []Record, error) {
-	block := typstDocBlock(data)
+	// #metadata((...)) <label>  – custom per-document metadata tuple
+	// #set document(...)        – standard Typst document metadata
+	block := typstFindBlock(data, "#metadata((")
+	if block == nil {
+		block = typstFindBlock(data, "#set document(")
+	}
 	if block == nil {
 		return nil, nil, nil
 	}
@@ -29,11 +34,11 @@ func (p *typstParser) Extract(path string, data []byte, opts ParseOpts) (Record,
 	return nil, []Record{rec}, nil
 }
 
-// typstDocBlock finds the content inside the first #set document(...),
-// handling nested parentheses (e.g. datetime(...)).
-func typstDocBlock(data []byte) []byte {
-	prefix := []byte("#set document(")
-	idx := bytes.Index(data, prefix)
+// typstFindBlock finds the content after prefix up to the matching closing paren.
+// prefix must end with the opening '(' already consumed (depth starts at 1).
+// Works for both "#set document(" and "#metadata((" (double-paren tuple call).
+func typstFindBlock(data []byte, prefix string) []byte {
+	idx := bytes.Index(data, []byte(prefix))
 	if idx < 0 {
 		return nil
 	}
