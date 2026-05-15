@@ -1,6 +1,6 @@
 # grubber
 
-A data retrieval tool for Markdown files. It just grubs fast through a big data field.
+A data retrieval tool for Markdown and other text files with metadata. It just grubs fast through a big data field.
 
 YAML code blocks in Markdown are usually treated as code examples, something to display or syntax-highlight. grubber treats them as structured data records that live next to their context, across an entire directory of files. Think dataview without Obsidian.
 
@@ -89,15 +89,18 @@ grubber is not a multi-dimensional database. But it covers many use cases: filte
 | Query language | Proprietary DQL | Standard tools (jq, nushell, miller) |
 | Output | In-note rendering | JSON/TSV for any pipeline |
 | Live updates | Yes | No (run on demand) |
+| Formats | Markdown only | Markdown, Typst, extensible |
 | Extensible | Plugin API | Shell scripts, any language |
 
 grubber trades live updates for tool independence. No proprietary query language to learn. If you know jq or nushell, you already know how to query grubber output.
 
 ## How it works
 
-grubber scans Markdown files for YAML frontmatter and fenced YAML code blocks, merges them into flat records, and outputs JSON or TSV. It does one thing: extract. All logic like filtering, sorting, or aggregating happens downstream with standard tools.
+grubber scans files for metadata and structured data, merges everything into flat records, and outputs JSON or TSV. It does one thing: extract. All logic like filtering, sorting, or aggregating happens downstream with standard tools.
 
-Multiple YAML blocks per file produce multiple records, each inheriting the frontmatter fields. The YAML block holds queryable data. The prose around it is context that doesn't need to be queried.
+The primary format is Markdown: grubber reads YAML frontmatter and fenced YAML code blocks, merges them into flat records. Multiple YAML blocks per file produce multiple records, each inheriting the frontmatter fields.
+
+Beyond Markdown, grubber has a file-format registry that can handle other text files with metadata. Typst is currently implemented: grubber reads `#metadata((...))` and `#set document(...)` blocks. Which file types are scanned is configurable via `--extensions`.
 
 ## Usage
 
@@ -162,6 +165,7 @@ Optional config file at `~/.config/grubber/config.yaml`:
 defaults:
   blocks_only: true
   array_fields: [keywords, category]
+  extensions: [.md, .typ]
 
 sets:
   contracts:
@@ -186,6 +190,7 @@ CLI flags > Config set > Environment variables > Config defaults > Built-in defa
 |----------|---------|
 | `GRUBBER_NOTES` | Default notes directory |
 | `GRUBBER_ARRAY_FIELDS` | Fields to normalize to arrays (comma-separated) |
+| `GRUBBER_EXTENSIONS` | File extensions to scan (comma-separated, e.g. `.md,.typ`) |
 
 ## Options
 
@@ -197,6 +202,7 @@ CLI flags > Config set > Environment variables > Config defaults > Built-in defa
 -m, --frontmatter-only    Only extract frontmatter
 -a, --all                 Extract everything, override config defaults
     --array-fields FIELDS Normalize fields to arrays (splits comma-separated values)
+    --extensions EXTS     File extensions to scan (comma-separated, default: all registered)
     --mmd                 Also read MultiMarkdown metadata headers
 -d, --depth N             Limit directory recursion depth (0 = no subdirectories)
     --workers N           Number of parallel workers (default: NumCPU)
@@ -209,6 +215,8 @@ CLI flags > Config set > Environment variables > Config defaults > Built-in defa
 
 ## How to structure your notes
 
+### Markdown
+
 grubber reads two things from a Markdown file: YAML frontmatter and fenced YAML code blocks (` ```yaml `). Everything else is ignored.
 
 - Frontmatter holds note-level metadata (title, keywords, created date). These fields are merged into every record from that file.
@@ -216,6 +224,18 @@ grubber reads two things from a Markdown file: YAML frontmatter and fenced YAML 
 - Multiple YAML blocks in one note produce multiple records. Each inherits the frontmatter fields.
 - On field name collision, the YAML block wins over frontmatter.
 - Notes without YAML blocks are extracted as frontmatter-only records (unless `--blocks-only`).
+
+### Typst
+
+grubber reads metadata from two Typst constructs:
+
+- `#metadata((key: "value", ...)) <label>` — custom per-document metadata tuple, takes priority
+- `#set document(title: "...", author: "...", date: datetime(...))` — standard Typst document metadata
+
+Only the first matching block per file is read. `datetime(year:, month:, day:)` values are converted to `YYYY-MM-DD` strings. Arrays are supported: `("a", "b", "c")` becomes a JSON array.
+
+### General
+
 - A `_note_file` field is added automatically to every record for traceability.
 - A `_mtime` field (RFC3339 UTC) is added automatically with the file's last-modified time.
 - grubber scans directories recursively. Hidden directories (starting with `.`) are skipped.

@@ -1,22 +1,39 @@
 # grubber – Architecture
 
-grubber is about 450 lines of Go across four small files:
+grubber is about 600 lines of Go across seven small files:
 
 | File | What it does |
 |------|--------------|
 | `main.go` | CLI flags, config cascade, output routing |
-| `grubber.go` | File discovery, parsing, worker pool, output |
+| `grubber.go` | File discovery, parser dispatch, worker pool, output |
+| `parser.go` | FileParser interface and format registry |
+| `parser_md.go` | Markdown parser: YAML frontmatter, YAML blocks, MultiMarkdown headers |
+| `parser_typst.go` | Typst parser: `#metadata((...))` and `#set document(...)` |
 | `filter.go` | Filter expression parsing and matching |
 | `config.go` | Config file loader |
 
 ## What happens on each run
 
-1. Find all `.md` files (recursive, hidden dirs skipped)
-2. Parse each file in parallel: extract frontmatter + YAML blocks, merge into flat records
-3. Add `_note_file` and `_mtime` to every record
+1. Find all files with registered extensions (default: `.md`, `.typ`) recursively, hidden dirs skipped
+2. Parse each file in parallel: dispatch to the matching FileParser by extension, extract metadata and data records
+3. Merge metadata and records into flat records; add `_note_file` and `_mtime`
 4. Apply filters, emit JSON / TSV / NDJSON
 
 No index, no cache, no state between runs.
+
+## FileParser interface
+
+Each file format is a self-contained file that registers itself via `init()`:
+
+```go
+type FileParser interface {
+    Extract(path string, data []byte, opts ParseOpts) (frontmatter Record, blocks []Record, err error)
+}
+```
+
+`grubber.go` dispatches by file extension (`filepath.Ext`) and knows nothing about individual formats. Adding a new format means adding one file — no changes to core logic.
+
+`ParseOpts` carries flags that only make sense for specific formats (e.g. `FrontmatterOnly` applies to Markdown, is ignored by Typst). This keeps parsers decoupled from the `Grubber` struct.
 
 ## A few non-obvious decisions
 
@@ -27,6 +44,10 @@ No index, no cache, no state between runs.
 **--no-fill shortcut.** Normally, all records are padded with `nil` for missing keys (uniform schema for JSON/TSV). With `--no-fill`, the key-collection map and sort are skipped entirely — records come out with only the keys they actually have. Useful for `read_ndjson_auto` in DuckDB, which infers the schema itself.
 
 **Config cascade.** Priority from low to high: built-in defaults → config file → named set → environment variables → CLI flags. `fs.Visit` detects which flags were explicitly passed (vs. at their zero value) so set values aren't overwritten by unset flags.
+
+**Typst block extraction.** `#metadata((content))` uses nested parens — the outer call parens and an inner tuple. `typstFindBlock` scans byte-by-byte tracking paren depth, so nested structures like `datetime(year: 2024, month: 6, day: 1)` are handled without a full parser. The same function handles both `#metadata((` and `#set document(` via a prefix argument.
+
+**Typst returns blocks, not frontmatter.** The Typst parser returns its metadata as a block record rather than frontmatter. This ensures files are included even when `blocks_only: true` — since Typst has no YAML-block concept, the `#metadata()` block IS the record.
 
 ## Performance
 
