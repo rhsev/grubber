@@ -100,7 +100,7 @@ grubber scans files for metadata and structured data, merges everything into fla
 
 The primary format is Markdown: grubber reads YAML frontmatter and fenced YAML code blocks, merges them into flat records. Multiple YAML blocks per file produce multiple records, each inheriting the frontmatter fields.
 
-Beyond Markdown, grubber has a file-format registry that can handle other text files with metadata. Typst is currently implemented: grubber reads `#metadata((...))` and `#set document(...)` blocks. Which file types are scanned is configurable via `--extensions`.
+Beyond Markdown, grubber has a file-format registry that can handle other text files with metadata. Typst is currently implemented: grubber reads `#metadata((...))` and `#set document(...)` blocks. Which file types are scanned is configurable via `--extensions`. Other formats with native metadata conventions — such as Org-mode, AsciiDoc, or plain YAML — are natural candidates for future parsers.
 
 ## Usage
 
