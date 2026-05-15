@@ -8,7 +8,7 @@ YAML code blocks in Markdown are usually treated as code examples, something to 
 
 Input (`project-alpha.md`):
 
-```markdown
+````markdown
 ---
 title: Project Alpha
 keywords: [project]
@@ -16,7 +16,7 @@ keywords: [project]
 
 # Project Alpha
 
-\```yaml
+```yaml
 type: project
 name: "Project Alpha"
 org: "Northwind Corp"
@@ -24,10 +24,10 @@ status: active
 start: 2025-01-15
 end: 2025-06-30
 owner: Jane Smith
-\```
+```
 
 Kickoff completed. First milestone due end of February.
-```
+````
 
 Output (`grubber extract examples/`):
 
