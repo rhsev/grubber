@@ -1,4 +1,6 @@
-# grubber [![CI](https://github.com/rhsev/grubber/actions/workflows/ci.yml/badge.svg)](https://github.com/rhsev/grubber/actions/workflows/ci.yml)
+# grubber
+
+[![CI](https://github.com/rhsev/grubber/actions/workflows/ci.yml/badge.svg)](https://github.com/rhsev/grubber/actions/workflows/ci.yml)
 
 A data retrieval tool for Markdown and other text files with metadata. It just grubs fast through a big data field.
 
