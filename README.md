@@ -4,7 +4,7 @@
 
 A data retrieval tool for Markdown and other text files with metadata. It just grubs fast through a big data field.
 
-YAML code blocks in Markdown are usually treated as code examples, something to display or syntax-highlight. grubber treats them as structured data records that live next to their context, across an entire directory of files. Think dataview without Obsidian.
+YAML code blocks in Markdown are usually used as code examples. grubber treats them as structured data records that live next to their context, across an entire directory of files. Think dataview without Obsidian.
 
 ## Quick example
 
