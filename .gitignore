@@ -12,4 +12,6 @@ grubber-macos-arm64
 
 # Tools
 dataview-bridge.rb
+grubber-write
+grubber_write_test.rb
 
