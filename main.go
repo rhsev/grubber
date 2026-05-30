@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-const version = "0.9.0"
+const version = "0.10.0"
 
 type multiFlag []string
 
@@ -77,19 +77,20 @@ func runExtract(args []string, pathOverride string) {
 	fs.Usage = printExtractHelp
 
 	var (
-		outputFile     string
-		setName        string
-		format         string
-		blocksOnly     bool
+		outputFile      string
+		setName         string
+		format          string
+		blocksOnly      bool
 		frontmatterOnly bool
-		allFlag        bool
-		useMmd         bool
-		noFill         bool
-		depth          int
-		workers        int
-		arrayFieldsStr string
-		extensionsStr  string
-		filters        multiFlag
+		allFlag         bool
+		useMmd          bool
+		noFill          bool
+		depth           int
+		workers         int
+		arrayFieldsStr  string
+		extensionsStr   string
+		filters         multiFlag
+		fromNDJSON      multiFlag
 	)
 
 	fs.StringVar(&outputFile, "o", "", "Write output to file")
@@ -111,6 +112,7 @@ func runExtract(args []string, pathOverride string) {
 	fs.StringVar(&extensionsStr, "extensions", "", "File extensions to scan (comma-separated, e.g. .md,.typ)")
 	fs.Var(&filters, "f", "Filter records (can be used multiple times)")
 	fs.Var(&filters, "filter", "Filter records (can be used multiple times)")
+	fs.Var(&fromNDJSON, "from-ndjson", "Read records from NDJSON file or directory (repeatable)")
 
 	boolFlags := map[string]bool{
 		"b": true, "blocks-only": true,
@@ -146,6 +148,7 @@ func runExtract(args []string, pathOverride string) {
 		extensionsStr:      extensionsStr,
 		filters:            []string(filters),
 		notesDir:           pathOverride,
+		fromNDJSON:         []string(fromNDJSON),
 	})
 }
 
@@ -168,6 +171,7 @@ type execOpts struct {
 	extensionsStr      string
 	filters            []string
 	notesDir           string
+	fromNDJSON         []string
 }
 
 func execute(opts execOpts) {
@@ -195,7 +199,7 @@ func execute(opts execOpts) {
 	if finalNotesDir == "" {
 		finalNotesDir = os.Getenv("GRUBBER_NOTES")
 	}
-	if finalNotesDir == "" {
+	if finalNotesDir == "" && len(opts.fromNDJSON) == 0 {
 		finalNotesDir, _ = os.Getwd()
 	}
 
@@ -257,7 +261,7 @@ func execute(opts execOpts) {
 		extensions = splitTrim(opts.extensionsStr, ",")
 	}
 
-	g, err := NewGrubber(finalNotesDir, blocksOnly, frontmatterOnly, useMmd, opts.noFill, depth, opts.workers, arrayFields, filters, extensions)
+	g, err := NewGrubber(finalNotesDir, blocksOnly, frontmatterOnly, useMmd, opts.noFill, depth, opts.workers, arrayFields, filters, extensions, opts.fromNDJSON)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -291,7 +295,11 @@ func execute(opts execOpts) {
 	}
 
 	if len(records) == 0 {
-		fmt.Fprintf(os.Stderr, "No YAML records found in %s\n", finalNotesDir)
+		if finalNotesDir != "" {
+			fmt.Fprintf(os.Stderr, "No YAML records found in %s\n", finalNotesDir)
+		} else {
+			fmt.Fprintf(os.Stderr, "No records found\n")
+		}
 		os.Exit(0)
 	}
 
@@ -416,6 +424,9 @@ Options:
   -f, --filter=EXPR         Filter records (can be used multiple times)
                             Operators: = (equals), ~ (contains), ^ (starts with), ! (not equals)
                             Examples: type=vertrag, due^2025-02, name~versicher
+      --from-ndjson=PATH    Read records from an NDJSON file (or directory of *.ndjson files)
+                            and union them into the output. Repeatable. The notes directory
+                            becomes optional when at least one --from-ndjson is given.
   -h, --help                Show this help
 `)
 }

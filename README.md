@@ -159,6 +159,36 @@ grubber extract ~/notes --format ndjson --no-fill | duckdb -c "SELECT name, stat
 grubber extract ~/notes --format tsv | mlr --tsv sort-by -nr amount
 ```
 
+## NDJSON sources (`--from-ndjson`)
+
+grubber can read pre-computed records from one or more `.ndjson` files and union them into the output alongside (or instead of) a fresh scan.
+
+```sh
+# Cache an expensive scan once …
+grubber extract ~/notes --format ndjson -o cache.ndjson
+
+# … then replay it with no Markdown read at all:
+grubber extract --from-ndjson cache.ndjson
+
+# … or merge a fresh scan of a small dir with a large cached baseline:
+grubber extract ~/new-notes --from-ndjson cache.ndjson
+
+# Multiple sources (files or directories of *.ndjson):
+grubber extract --from-ndjson /path/to/cache1.ndjson --from-ndjson /path/to/dir/
+```
+
+`--from-ndjson` is repeatable. If a path is a directory, every `*.ndjson` file directly inside it is read (non-recursive, sorted by filename).
+
+**Merge semantics.** Source records are concatenated with scanned records — no deduplication. Scanned records come first, then sources in the order given.
+
+**Provenance (`_note_file` / `_mtime`).** grubber guarantees every emitted record carries `_note_file`:
+- If a source record already has `_note_file` (e.g., from a prior grubber run): **preserved unchanged.** Round-trip fidelity — the original Markdown path is kept.
+- If a source record has no `_note_file` (tool-authored lines): grubber injects the source file path.
+
+**Filters and `--array-fields`** apply to source records exactly as they do to scanned records. `-b`/`-m` (blocks-only / frontmatter-only) are scan-path concepts and do not filter source records.
+
+The notes directory is optional when at least one `--from-ndjson` is given.
+
 ## Configuration
 
 Optional config file at `~/.config/grubber/config.yaml`:
@@ -210,6 +240,7 @@ CLI flags > Config set > Environment variables > Config defaults > Built-in defa
     --workers N           Number of parallel workers (default: NumCPU)
     --no-fill             Skip nil-filling missing keys (useful for DuckDB)
 -f, --filter EXPR         Filter records (repeatable)
+    --from-ndjson PATH    Read records from NDJSON file or directory; union into output (repeatable)
 -h, --help                Show help
 ```
 

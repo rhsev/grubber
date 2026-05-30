@@ -32,19 +32,29 @@ type Grubber struct {
 	extensions      []string
 	filter          *Filter
 	singleFile      bool
+	fromNDJSON      []string
 }
 
-func NewGrubber(notesDir string, blocksOnly, frontmatterOnly, useMmd, noFill bool, depth *int, workers int, arrayFields, filters, extensions []string) (*Grubber, error) {
-	expanded, err := expandPath(notesDir)
-	if err != nil {
-		return nil, fmt.Errorf("could not resolve path: %w", err)
-	}
-	info, err := os.Stat(expanded)
-	if err != nil {
-		return nil, fmt.Errorf("not found: %s", expanded)
+func NewGrubber(notesDir string, blocksOnly, frontmatterOnly, useMmd, noFill bool, depth *int, workers int, arrayFields, filters, extensions, fromNDJSON []string) (*Grubber, error) {
+	var expanded string
+	var singleFile bool
+	if notesDir != "" {
+		var err error
+		expanded, err = expandPath(notesDir)
+		if err != nil {
+			return nil, fmt.Errorf("could not resolve path: %w", err)
+		}
+		info, err := os.Stat(expanded)
+		if err != nil {
+			return nil, fmt.Errorf("not found: %s", expanded)
+		}
+		singleFile = !info.IsDir()
+	} else if len(fromNDJSON) == 0 {
+		return nil, fmt.Errorf("no notes directory or --from-ndjson source given")
 	}
 	var f *Filter
 	if len(filters) > 0 {
+		var err error
 		f, err = NewFilter(filters)
 		if err != nil {
 			return nil, err
@@ -64,7 +74,8 @@ func NewGrubber(notesDir string, blocksOnly, frontmatterOnly, useMmd, noFill boo
 		arrayFields:     arrayFields,
 		extensions:      extensions,
 		filter:          f,
-		singleFile:      !info.IsDir(),
+		singleFile:      singleFile,
+		fromNDJSON:      fromNDJSON,
 	}, nil
 }
 
@@ -110,29 +121,64 @@ func (g *Grubber) processFiles(files []string) <-chan []Record {
 }
 
 func (g *Grubber) Extract(files []string) (records []Record, keys []string, err error) {
-	if files == nil {
-		files, err = g.textFiles()
-		if err != nil {
-			return
-		}
-	}
-	if len(files) == 0 {
-		return nil, nil, nil
-	}
-
 	var allKeys map[string]struct{}
 	if !g.noFill {
 		allKeys = make(map[string]struct{})
 	}
-	for fileRecords := range g.processFiles(files) {
-		for _, r := range fileRecords {
-			records = append(records, r)
-			if allKeys != nil {
-				for k := range r {
-					allKeys[k] = struct{}{}
-				}
+
+	accumulate := func(r Record) {
+		records = append(records, r)
+		if allKeys != nil {
+			for k := range r {
+				allKeys[k] = struct{}{}
 			}
 		}
+	}
+
+	// Scan path
+	if g.notesDir != "" {
+		if files == nil {
+			files, err = g.textFiles()
+			if err != nil {
+				return
+			}
+		}
+		for fileRecords := range g.processFiles(files) {
+			for _, r := range fileRecords {
+				accumulate(r)
+			}
+		}
+	}
+
+	// NDJSON source path
+	if len(g.fromNDJSON) > 0 {
+		var srcPaths []string
+		srcPaths, err = expandNDJSONSources(g.fromNDJSON)
+		if err != nil {
+			return
+		}
+		for _, srcPath := range srcPaths {
+			var srcRecords []Record
+			srcRecords, err = readNDJSONSource(srcPath)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error reading %s: %v\n", srcPath, err)
+				err = nil
+				continue
+			}
+			for _, r := range srcRecords {
+				if len(g.arrayFields) > 0 {
+					g.normalizeArrays(r)
+				}
+				if g.filter != nil && !g.filter.Match(r) {
+					continue
+				}
+				accumulate(r)
+			}
+		}
+	}
+
+	if len(records) == 0 {
+		return nil, nil, nil
 	}
 
 	if !g.noFill {
@@ -169,15 +215,43 @@ func (g *Grubber) Extract(files []string) (records []Record, keys []string, err 
 // StreamNDJSON writes records as newline-delimited JSON as they are processed,
 // without buffering all records in memory first.
 func (g *Grubber) StreamNDJSON(w io.Writer) error {
-	files, err := g.textFiles()
-	if err != nil {
-		return err
-	}
 	enc := json.NewEncoder(w)
-	for fileRecords := range g.processFiles(files) {
-		for _, r := range fileRecords {
-			if err := enc.Encode(r); err != nil {
-				return err
+
+	if g.notesDir != "" {
+		files, err := g.textFiles()
+		if err != nil {
+			return err
+		}
+		for fileRecords := range g.processFiles(files) {
+			for _, r := range fileRecords {
+				if err := enc.Encode(r); err != nil {
+					return err
+				}
+			}
+		}
+	}
+
+	if len(g.fromNDJSON) > 0 {
+		srcPaths, err := expandNDJSONSources(g.fromNDJSON)
+		if err != nil {
+			return err
+		}
+		for _, srcPath := range srcPaths {
+			srcRecords, err := readNDJSONSource(srcPath)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error reading %s: %v\n", srcPath, err)
+				continue
+			}
+			for _, r := range srcRecords {
+				if len(g.arrayFields) > 0 {
+					g.normalizeArrays(r)
+				}
+				if g.filter != nil && !g.filter.Match(r) {
+					continue
+				}
+				if err := enc.Encode(r); err != nil {
+					return err
+				}
 			}
 		}
 	}
