@@ -6,7 +6,7 @@ grubber is about 700 lines of Go across eight small files:
 |------|--------------|
 | `main.go` | CLI flags, config cascade, output routing |
 | `grubber.go` | File discovery, parser dispatch, worker pool, output |
-| `source_ndjson.go` | NDJSON merge sources: dir expansion, line-parsing, provenance injection |
+| `source_jsonl.go` | JSONL merge sources: dir expansion, line-parsing, provenance injection |
 | `parser.go` | FileParser interface and format registry |
 | `parser_md.go` | Markdown parser: YAML frontmatter, YAML blocks, MultiMarkdown headers |
 | `parser_typst.go` | Typst parser: `#metadata((...))` and `#set document(...)` |
@@ -18,9 +18,9 @@ grubber is about 700 lines of Go across eight small files:
 1. Find all files with registered extensions (default: `.md`, `.typ`) recursively, hidden dirs skipped
 2. Parse each file in parallel: dispatch to the matching FileParser by extension, extract metadata and data records
 3. Merge metadata and records into flat records; add `_note_file` and `_mtime`
-4. Apply filters, emit JSON / TSV / NDJSON
+4. Apply filters, emit JSON / TSV / JSONL
 
-Optionally, NDJSON merge sources are read and unioned into the result set (see below).
+Optionally, JSONL merge sources are read and unioned into the result set (see below).
 
 No index, no cache, no state between runs.
 
@@ -38,11 +38,11 @@ type FileParser interface {
 
 `ParseOpts` carries flags that only make sense for specific formats (e.g. `FrontmatterOnly` applies to Markdown, is ignored by Typst). This keeps parsers decoupled from the `Grubber` struct.
 
-## Merge sources (`--from-ndjson`)
+## Merge sources (`--from-jsonl`)
 
-NDJSON files named on `--from-ndjson` are a second input alongside the scan path. They are **not** discovered by walking the notes tree — sources are always explicit. This design is intentional:
+JSONL files named on `--from-jsonl` are a second input alongside the scan path. They are **not** discovered by walking the notes tree — sources are always explicit. This design is intentional:
 
-- **NDJSON is grubber's own output format.** Output of one run becomes input of the next, making grubber composable as a pipeline stage and enabling cheap replay from a cached scan.
+- **JSONL is grubber's own output format.** Output of one run becomes input of the next, making grubber composable as a pipeline stage and enabling cheap replay from a cached scan.
 - **Sources are decoupled from the tree.** A source can live anywhere; it does not have to sit inside `notesDir`.
 
 **Union semantics.** Records from merge sources are concatenated with scanned records. No deduplication: if a fresh scan and a cache overlap, the output contains both by design. Consumers that need deduplication do it downstream (e.g., DuckDB `DISTINCT`).
@@ -51,7 +51,7 @@ NDJSON files named on `--from-ndjson` are a second input alongside the scan path
 - If a record already has `_note_file` (e.g., a grubber-produced cache): **preserved, never overwritten.** Round-trip fidelity — the original Markdown provenance is unchanged.
 - If a record lacks `_note_file` (tool-authored lines): grubber injects the exact source file's path and `_mtime`.
 
-**This is not a parser.** `source_ndjson.go` is a separate input stage, not a FileParser registered in the format registry. It feeds the same filter/array-normalization/output path as scanned records. `-b`/`-m` (blocks-only/frontmatter-only) are scan-path concepts and do not filter merge-source records.
+**This is not a parser.** `source_jsonl.go` is a separate input stage, not a FileParser registered in the format registry. It feeds the same filter/array-normalization/output path as scanned records. `-b`/`-m` (blocks-only/frontmatter-only) are scan-path concepts and do not filter merge-source records.
 
 ## A few non-obvious decisions
 
@@ -59,7 +59,7 @@ NDJSON files named on `--from-ndjson` are a second input alongside the scan path
 
 **reorderArgs.** Go's `flag` package stops parsing at the first non-flag argument, so `grubber extract ~/notes --format tsv` would silently ignore `--format`. `reorderArgs` moves positional arguments to the end before parsing, so flag order doesn't matter.
 
-**--no-fill shortcut.** Normally, all records are padded with `nil` for missing keys (uniform schema for JSON/TSV). With `--no-fill`, the key-collection map and sort are skipped entirely — records come out with only the keys they actually have. Useful for `read_ndjson_auto` in DuckDB, which infers the schema itself.
+**--no-fill shortcut.** Normally, all records are padded with `nil` for missing keys (uniform schema for JSON/TSV). With `--no-fill`, the key-collection map and sort are skipped entirely — records come out with only the keys they actually have. Useful for `read_jsonl_auto` in DuckDB, which infers the schema itself.
 
 **Config cascade.** Priority from low to high: built-in defaults → config file → named set → environment variables → CLI flags. `fs.Visit` detects which flags were explicitly passed (vs. at their zero value) so set values aren't overwritten by unset flags.
 

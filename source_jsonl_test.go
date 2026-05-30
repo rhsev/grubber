@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func writeTempNDJSON(t *testing.T, dir, name string, lines []string) string {
+func writeTempJSONL(t *testing.T, dir, name string, lines []string) string {
 	t.Helper()
 	path := filepath.Join(dir, name)
 	content := strings.Join(lines, "\n") + "\n"
@@ -18,10 +18,10 @@ func writeTempNDJSON(t *testing.T, dir, name string, lines []string) string {
 	return path
 }
 
-// Test 1: Pure replay — no directory, only --from-ndjson
-func TestNDJSONPureReplay(t *testing.T) {
+// Test 1: Pure replay — no directory, only --from-jsonl
+func TestJSONLPureReplay(t *testing.T) {
 	dir := t.TempDir()
-	p := writeTempNDJSON(t, dir, "test.ndjson", []string{
+	p := writeTempJSONL(t, dir, "test.jsonl", []string{
 		`{"name":"alice","_note_file":"/notes/alice.md","_mtime":"2024-01-01T00:00:00Z"}`,
 		`{"name":"bob","_note_file":"/notes/bob.md","_mtime":"2024-01-01T00:00:00Z"}`,
 	})
@@ -38,13 +38,13 @@ func TestNDJSONPureReplay(t *testing.T) {
 	}
 }
 
-// Test 2: Merge — directory scan + NDJSON source, counts add up
-func TestNDJSONMerge(t *testing.T) {
+// Test 2: Merge — directory scan + JSONL source, counts add up
+func TestJSONLMerge(t *testing.T) {
 	if _, err := os.Stat("examples"); err != nil {
 		t.Skip("examples dir not available")
 	}
 	tmp := t.TempDir()
-	extraP := writeTempNDJSON(t, tmp, "extra.ndjson", []string{
+	extraP := writeTempJSONL(t, tmp, "extra.jsonl", []string{
 		`{"name":"extra-record","type":"test","_note_file":"/extra.md"}`,
 	})
 
@@ -71,9 +71,9 @@ func TestNDJSONMerge(t *testing.T) {
 }
 
 // Test 3: Preserve-else-inject — existing _note_file preserved; absent one injected
-func TestNDJSONPreserveElseInject(t *testing.T) {
+func TestJSONLPreserveElseInject(t *testing.T) {
 	dir := t.TempDir()
-	p := writeTempNDJSON(t, dir, "test.ndjson", []string{
+	p := writeTempJSONL(t, dir, "test.jsonl", []string{
 		`{"name":"alice","_note_file":"/original/alice.md","_mtime":"2020-01-01T00:00:00Z"}`,
 		`{"name":"bob"}`,
 	})
@@ -113,8 +113,8 @@ func TestNDJSONPreserveElseInject(t *testing.T) {
 	}
 }
 
-// Test 4: Round-trip — extract → serialize to ndjson → replay → identical _note_file
-func TestNDJSONRoundTrip(t *testing.T) {
+// Test 4: Round-trip — extract → serialize to jsonl → replay → identical _note_file
+func TestJSONLRoundTrip(t *testing.T) {
 	if _, err := os.Stat("examples"); err != nil {
 		t.Skip("examples dir not available")
 	}
@@ -128,8 +128,8 @@ func TestNDJSONRoundTrip(t *testing.T) {
 	}
 
 	tmp := t.TempDir()
-	ndjsonPath := filepath.Join(tmp, "cache.ndjson")
-	f, err := os.Create(ndjsonPath)
+	jsonlPath := filepath.Join(tmp, "cache.jsonl")
+	f, err := os.Create(jsonlPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,7 +142,7 @@ func TestNDJSONRoundTrip(t *testing.T) {
 	}
 	f.Close()
 
-	g2, err := NewGrubber("", false, false, false, true, nil, 0, nil, nil, nil, []string{ndjsonPath})
+	g2, err := NewGrubber("", false, false, false, true, nil, 0, nil, nil, nil, []string{jsonlPath})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,11 +163,11 @@ func TestNDJSONRoundTrip(t *testing.T) {
 	}
 }
 
-// Test 5: Directory source — dir of two *.ndjson files, all records, _note_file per-file
-func TestNDJSONDirectorySource(t *testing.T) {
+// Test 5: Directory source — dir of two *.jsonl files, all records, _note_file per-file
+func TestJSONLDirectorySource(t *testing.T) {
 	dir := t.TempDir()
-	p1 := writeTempNDJSON(t, dir, "a.ndjson", []string{`{"name":"from-a"}`})
-	p2 := writeTempNDJSON(t, dir, "b.ndjson", []string{`{"name":"from-b"}`})
+	p1 := writeTempJSONL(t, dir, "a.jsonl", []string{`{"name":"from-a"}`})
+	p2 := writeTempJSONL(t, dir, "b.jsonl", []string{`{"name":"from-b"}`})
 
 	g, err := NewGrubber("", false, false, false, true, nil, 0, nil, nil, nil, []string{dir})
 	if err != nil {
@@ -180,7 +180,7 @@ func TestNDJSONDirectorySource(t *testing.T) {
 	if len(records) != 2 {
 		t.Fatalf("expected 2 records, got %d", len(records))
 	}
-	// Sorted by _note_file basename: a.ndjson < b.ndjson
+	// Sorted by _note_file basename: a.jsonl < b.jsonl
 	if records[0]["_note_file"] != p1 {
 		t.Errorf("first record _note_file should be %q, got %v", p1, records[0]["_note_file"])
 	}
@@ -190,9 +190,9 @@ func TestNDJSONDirectorySource(t *testing.T) {
 }
 
 // Test 6: Line-level rules — blank lines skipped, malformed warned+skipped, nested values preserved
-func TestNDJSONLineRules(t *testing.T) {
+func TestJSONLLineRules(t *testing.T) {
 	dir := t.TempDir()
-	p := writeTempNDJSON(t, dir, "test.ndjson", []string{
+	p := writeTempJSONL(t, dir, "test.jsonl", []string{
 		`{"name":"first","tags":["a","b"],"meta":{"key":"val"}}`,
 		``,
 		`not json{`,
@@ -200,7 +200,7 @@ func TestNDJSONLineRules(t *testing.T) {
 		`{"name":"last"}`,
 	})
 
-	records, err := readNDJSONSource(p)
+	records, err := readJSONLSource(p)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,9 +221,9 @@ func TestNDJSONLineRules(t *testing.T) {
 }
 
 // Test 7: Filter applies to source records
-func TestNDJSONFilterApplied(t *testing.T) {
+func TestJSONLFilterApplied(t *testing.T) {
 	dir := t.TempDir()
-	p := writeTempNDJSON(t, dir, "test.ndjson", []string{
+	p := writeTempJSONL(t, dir, "test.jsonl", []string{
 		`{"type":"keep","name":"alice"}`,
 		`{"type":"drop","name":"bob"}`,
 	})
@@ -244,17 +244,17 @@ func TestNDJSONFilterApplied(t *testing.T) {
 }
 
 // Test 8: No directory and no source is an error
-func TestNDJSONNoSourceNoDir(t *testing.T) {
+func TestJSONLNoSourceNoDir(t *testing.T) {
 	_, err := NewGrubber("", false, false, false, false, nil, 0, nil, nil, nil, nil)
 	if err == nil {
-		t.Fatal("expected error when no directory and no --from-ndjson source")
+		t.Fatal("expected error when no directory and no --from-jsonl source")
 	}
 }
 
 // Test 9: -b/-m flags do not drop source records
-func TestNDJSONBlocksFrontmatterModeNoEffect(t *testing.T) {
+func TestJSONLBlocksFrontmatterModeNoEffect(t *testing.T) {
 	dir := t.TempDir()
-	p := writeTempNDJSON(t, dir, "test.ndjson", []string{
+	p := writeTempJSONL(t, dir, "test.jsonl", []string{
 		`{"name":"alice","_note_file":"/notes/alice.md"}`,
 	})
 
@@ -267,7 +267,7 @@ func TestNDJSONBlocksFrontmatterModeNoEffect(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(records) != 1 {
-		t.Errorf("blocks-only should not filter NDJSON source records, got %d records", len(records))
+		t.Errorf("blocks-only should not filter JSONL source records, got %d records", len(records))
 	}
 
 	gFM, err := NewGrubber("", false, true, false, true, nil, 0, nil, nil, nil, []string{p})
@@ -279,6 +279,6 @@ func TestNDJSONBlocksFrontmatterModeNoEffect(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(records2) != 1 {
-		t.Errorf("frontmatter-only should not filter NDJSON source records, got %d records", len(records2))
+		t.Errorf("frontmatter-only should not filter JSONL source records, got %d records", len(records2))
 	}
 }

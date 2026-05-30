@@ -33,17 +33,17 @@ func TestResolveNotesDir(t *testing.T) {
 		}
 	})
 
-	t.Run("cwd fallback when nothing set and no ndjson sources", func(t *testing.T) {
+	t.Run("cwd fallback when nothing set and no jsonl sources", func(t *testing.T) {
 		got := resolveNotesDir("", "", "", false, fakeGetwd(cwd))
 		if got != cwd {
 			t.Fatalf("got %q, want %q", got, cwd)
 		}
 	})
 
-	// Regression: a pure --from-ndjson run with no dir/set/env must NOT fall
+	// Regression: a pure --from-jsonl run with no dir/set/env must NOT fall
 	// back to the cwd. Previously expandPath("") returned the cwd and turned a
 	// source-only replay into a cwd scan.
-	t.Run("no cwd fallback when ndjson sources present", func(t *testing.T) {
+	t.Run("no cwd fallback when jsonl sources present", func(t *testing.T) {
 		got := resolveNotesDir("", "", "", true, fakeGetwd(cwd))
 		if got != "" {
 			t.Fatalf("got %q, want empty (source-only, no cwd scan)", got)

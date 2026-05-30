@@ -32,10 +32,10 @@ type Grubber struct {
 	extensions      []string
 	filter          *Filter
 	singleFile      bool
-	fromNDJSON      []string
+	fromJSONL       []string
 }
 
-func NewGrubber(notesDir string, blocksOnly, frontmatterOnly, useMmd, noFill bool, depth *int, workers int, arrayFields, filters, extensions, fromNDJSON []string) (*Grubber, error) {
+func NewGrubber(notesDir string, blocksOnly, frontmatterOnly, useMmd, noFill bool, depth *int, workers int, arrayFields, filters, extensions, fromJSONL []string) (*Grubber, error) {
 	var expanded string
 	var singleFile bool
 	if notesDir != "" {
@@ -49,8 +49,8 @@ func NewGrubber(notesDir string, blocksOnly, frontmatterOnly, useMmd, noFill boo
 			return nil, fmt.Errorf("not found: %s", expanded)
 		}
 		singleFile = !info.IsDir()
-	} else if len(fromNDJSON) == 0 {
-		return nil, fmt.Errorf("no notes directory or --from-ndjson source given")
+	} else if len(fromJSONL) == 0 {
+		return nil, fmt.Errorf("no notes directory or --from-jsonl source given")
 	}
 	var f *Filter
 	if len(filters) > 0 {
@@ -75,7 +75,7 @@ func NewGrubber(notesDir string, blocksOnly, frontmatterOnly, useMmd, noFill boo
 		extensions:      extensions,
 		filter:          f,
 		singleFile:      singleFile,
-		fromNDJSON:      fromNDJSON,
+		fromJSONL:       fromJSONL,
 	}, nil
 }
 
@@ -150,16 +150,16 @@ func (g *Grubber) Extract(files []string) (records []Record, keys []string, err 
 		}
 	}
 
-	// NDJSON source path
-	if len(g.fromNDJSON) > 0 {
+	// JSONL source path
+	if len(g.fromJSONL) > 0 {
 		var srcPaths []string
-		srcPaths, err = expandNDJSONSources(g.fromNDJSON)
+		srcPaths, err = expandJSONLSources(g.fromJSONL)
 		if err != nil {
 			return
 		}
 		for _, srcPath := range srcPaths {
 			var srcRecords []Record
-			srcRecords, err = readNDJSONSource(srcPath)
+			srcRecords, err = readJSONLSource(srcPath)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error reading %s: %v\n", srcPath, err)
 				err = nil
@@ -212,9 +212,9 @@ func (g *Grubber) Extract(files []string) (records []Record, keys []string, err 
 	return
 }
 
-// StreamNDJSON writes records as newline-delimited JSON as they are processed,
+// StreamJSONL writes records as newline-delimited JSON as they are processed,
 // without buffering all records in memory first.
-func (g *Grubber) StreamNDJSON(w io.Writer) error {
+func (g *Grubber) StreamJSONL(w io.Writer) error {
 	enc := json.NewEncoder(w)
 
 	if g.notesDir != "" {
@@ -231,13 +231,13 @@ func (g *Grubber) StreamNDJSON(w io.Writer) error {
 		}
 	}
 
-	if len(g.fromNDJSON) > 0 {
-		srcPaths, err := expandNDJSONSources(g.fromNDJSON)
+	if len(g.fromJSONL) > 0 {
+		srcPaths, err := expandJSONLSources(g.fromJSONL)
 		if err != nil {
 			return err
 		}
 		for _, srcPath := range srcPaths {
-			srcRecords, err := readNDJSONSource(srcPath)
+			srcRecords, err := readJSONLSource(srcPath)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error reading %s: %v\n", srcPath, err)
 				continue

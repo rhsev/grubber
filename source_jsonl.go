@@ -11,20 +11,20 @@ import (
 	"time"
 )
 
-// expandNDJSONSources resolves each path: files are used as-is, directories
-// are expanded to their *.ndjson children (non-recursive, sorted by filename).
-func expandNDJSONSources(srcs []string) ([]string, error) {
+// expandJSONLSources resolves each path: files are used as-is, directories
+// are expanded to their *.jsonl children (non-recursive, sorted by filename).
+func expandJSONLSources(srcs []string) ([]string, error) {
 	var out []string
 	for _, src := range srcs {
 		info, err := os.Stat(src)
 		if err != nil {
-			return nil, fmt.Errorf("--from-ndjson: %w", err)
+			return nil, fmt.Errorf("--from-jsonl: %w", err)
 		}
 		if !info.IsDir() {
 			out = append(out, src)
 			continue
 		}
-		matches, err := filepath.Glob(filepath.Join(src, "*.ndjson"))
+		matches, err := filepath.Glob(filepath.Join(src, "*.jsonl"))
 		if err != nil {
 			return nil, err
 		}
@@ -34,11 +34,11 @@ func expandNDJSONSources(srcs []string) ([]string, error) {
 	return out, nil
 }
 
-// readNDJSONSource reads records from a single NDJSON file.
+// readJSONLSource reads records from a single JSONL file.
 // Blank lines are skipped; malformed or non-object lines are warned and skipped.
 // Preserve-else-inject: if a record lacks _note_file, it is set to srcPath
 // (and _mtime to srcPath's mtime).
-func readNDJSONSource(srcPath string) ([]Record, error) {
+func readJSONLSource(srcPath string) ([]Record, error) {
 	f, err := os.Open(srcPath)
 	if err != nil {
 		return nil, err

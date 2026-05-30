@@ -152,32 +152,32 @@ grubber extract ~/notes -f type=contract | jq '[.[] | select(.end | startswith("
 # sql (duckdb): sort contacts by last interaction
 grubber extract ~/notes -f type=person | duckdb -c "SELECT name, last_contact FROM read_json_auto('/dev/stdin') ORDER BY last_contact DESC"
 
-# ndjson: stream into duckdb without buffering the full array
-grubber extract ~/notes --format ndjson --no-fill | duckdb -c "SELECT name, status FROM read_ndjson_auto('/dev/stdin')"
+# jsonl: stream into duckdb without buffering the full array
+grubber extract ~/notes --format jsonl --no-fill | duckdb -c "SELECT name, status FROM read_jsonl_auto('/dev/stdin')"
 
 # miller: TSV processing
 grubber extract ~/notes --format tsv | mlr --tsv sort-by -nr amount
 ```
 
-## NDJSON sources (`--from-ndjson`)
+## JSONL sources (`--from-jsonl`)
 
-grubber can read pre-computed records from one or more `.ndjson` files and union them into the output alongside (or instead of) a fresh scan.
+grubber can read pre-computed records from one or more `.jsonl` files and union them into the output alongside (or instead of) a fresh scan.
 
 ```sh
 # Cache an expensive scan once …
-grubber extract ~/notes --format ndjson -o cache.ndjson
+grubber extract ~/notes --format jsonl -o cache.jsonl
 
 # … then replay it with no Markdown read at all:
-grubber extract --from-ndjson cache.ndjson
+grubber extract --from-jsonl cache.jsonl
 
 # … or merge a fresh scan of a small dir with a large cached baseline:
-grubber extract ~/new-notes --from-ndjson cache.ndjson
+grubber extract ~/new-notes --from-jsonl cache.jsonl
 
-# Multiple sources (files or directories of *.ndjson):
-grubber extract --from-ndjson /path/to/cache1.ndjson --from-ndjson /path/to/dir/
+# Multiple sources (files or directories of *.jsonl):
+grubber extract --from-jsonl /path/to/cache1.jsonl --from-jsonl /path/to/dir/
 ```
 
-`--from-ndjson` is repeatable. If a path is a directory, every `*.ndjson` file directly inside it is read (non-recursive, sorted by filename).
+`--from-jsonl` is repeatable. If a path is a directory, every `*.jsonl` file directly inside it is read (non-recursive, sorted by filename).
 
 **Merge semantics.** Source records are concatenated with scanned records — no deduplication. Scanned records come first, then sources in the order given.
 
@@ -187,7 +187,7 @@ grubber extract --from-ndjson /path/to/cache1.ndjson --from-ndjson /path/to/dir/
 
 **Filters and `--array-fields`** apply to source records exactly as they do to scanned records. `-b`/`-m` (blocks-only / frontmatter-only) are scan-path concepts and do not filter source records.
 
-The notes directory is optional when at least one `--from-ndjson` is given.
+The notes directory is optional when at least one `--from-jsonl` is given.
 
 ## Configuration
 
@@ -229,7 +229,7 @@ CLI flags > Config set > Environment variables > Config defaults > Built-in defa
 ```
 -o, --output FILE         Write to file instead of stdout
 -s, --set NAME            Load options from config set
-    --format FORMAT       json (default), tsv, or ndjson
+    --format FORMAT       json (default), tsv, or jsonl
 -b, --blocks-only         Only extract YAML blocks
 -m, --frontmatter-only    Only extract frontmatter
 -a, --all                 Extract everything, override config defaults
@@ -240,7 +240,7 @@ CLI flags > Config set > Environment variables > Config defaults > Built-in defa
     --workers N           Number of parallel workers (default: NumCPU)
     --no-fill             Skip nil-filling missing keys (useful for DuckDB)
 -f, --filter EXPR         Filter records (repeatable)
-    --from-ndjson PATH    Read records from NDJSON file or directory; union into output (repeatable)
+    --from-jsonl PATH    Read records from JSONL file or directory; union into output (repeatable)
 -h, --help                Show help
 ```
 

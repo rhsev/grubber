@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-const version = "0.10.1"
+const version = "0.11.0"
 
 type multiFlag []string
 
@@ -76,12 +76,12 @@ func reorderArgs(args []string, boolFlags map[string]bool) []string {
 //
 //	explicit CLI/positional > set path > $GRUBBER_NOTES > cwd
 //
-// cwd is the last resort and is used only when there are no --from-ndjson
+// cwd is the last resort and is used only when there are no --from-jsonl
 // sources: a pure source-only run has no directory to scan, so it must return
 // "". An empty set path is ignored rather than expanded — expandPath("")
 // resolves to the cwd (filepath.Abs("")), which would silently turn a
 // source-only run into a cwd scan. getwd is injected for testability.
-func resolveNotesDir(cliDir, setPath, envNotes string, hasNDJSON bool, getwd func() (string, error)) string {
+func resolveNotesDir(cliDir, setPath, envNotes string, hasJSONL bool, getwd func() (string, error)) string {
 	if cliDir != "" {
 		return cliDir
 	}
@@ -92,7 +92,7 @@ func resolveNotesDir(cliDir, setPath, envNotes string, hasNDJSON bool, getwd fun
 	if envNotes != "" {
 		return envNotes
 	}
-	if !hasNDJSON {
+	if !hasJSONL {
 		if wd, err := getwd(); err == nil {
 			return wd
 		}
@@ -118,14 +118,14 @@ func runExtract(args []string, pathOverride string) {
 		arrayFieldsStr  string
 		extensionsStr   string
 		filters         multiFlag
-		fromNDJSON      multiFlag
+		fromJSONL       multiFlag
 	)
 
 	fs.StringVar(&outputFile, "o", "", "Write output to file")
 	fs.StringVar(&outputFile, "output", "", "Write output to file")
 	fs.StringVar(&setName, "s", "", "Load options from config set")
 	fs.StringVar(&setName, "set", "", "Load options from config set")
-	fs.StringVar(&format, "format", "", "Output format: json (default), tsv, or ndjson")
+	fs.StringVar(&format, "format", "", "Output format: json (default), tsv, or jsonl")
 	fs.BoolVar(&blocksOnly, "b", false, "Only extract YAML blocks")
 	fs.BoolVar(&blocksOnly, "blocks-only", false, "Only extract YAML blocks")
 	fs.BoolVar(&frontmatterOnly, "m", false, "Only extract frontmatter")
@@ -140,7 +140,7 @@ func runExtract(args []string, pathOverride string) {
 	fs.StringVar(&extensionsStr, "extensions", "", "File extensions to scan (comma-separated, e.g. .md,.typ)")
 	fs.Var(&filters, "f", "Filter records (can be used multiple times)")
 	fs.Var(&filters, "filter", "Filter records (can be used multiple times)")
-	fs.Var(&fromNDJSON, "from-ndjson", "Read records from NDJSON file or directory (repeatable)")
+	fs.Var(&fromJSONL, "from-jsonl", "Read records from JSONL file or directory (repeatable)")
 
 	boolFlags := map[string]bool{
 		"b": true, "blocks-only": true,
@@ -176,7 +176,7 @@ func runExtract(args []string, pathOverride string) {
 		extensionsStr:      extensionsStr,
 		filters:            []string(filters),
 		notesDir:           pathOverride,
-		fromNDJSON:         []string(fromNDJSON),
+		fromJSONL:          []string(fromJSONL),
 	})
 }
 
@@ -199,7 +199,7 @@ type execOpts struct {
 	extensionsStr      string
 	filters            []string
 	notesDir           string
-	fromNDJSON         []string
+	fromJSONL          []string
 }
 
 func execute(opts execOpts) {
@@ -223,7 +223,7 @@ func execute(opts execOpts) {
 		opts.notesDir,
 		cfgStr(setCfg, "path"),
 		os.Getenv("GRUBBER_NOTES"),
-		len(opts.fromNDJSON) > 0,
+		len(opts.fromJSONL) > 0,
 		os.Getwd,
 	)
 
@@ -285,7 +285,7 @@ func execute(opts execOpts) {
 		extensions = splitTrim(opts.extensionsStr, ",")
 	}
 
-	g, err := NewGrubber(finalNotesDir, blocksOnly, frontmatterOnly, useMmd, opts.noFill, depth, opts.workers, arrayFields, filters, extensions, opts.fromNDJSON)
+	g, err := NewGrubber(finalNotesDir, blocksOnly, frontmatterOnly, useMmd, opts.noFill, depth, opts.workers, arrayFields, filters, extensions, opts.fromJSONL)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -303,9 +303,9 @@ func execute(opts execOpts) {
 		out = os.Stdout
 	}
 
-	// NDJSON streams directly without collecting all records first
-	if finalFormat == "ndjson" {
-		if err = g.StreamNDJSON(out); err != nil {
+	// JSONL streams directly without collecting all records first
+	if finalFormat == "jsonl" {
+		if err = g.StreamJSONL(out); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
@@ -435,7 +435,7 @@ func printExtractHelp() {
 Options:
   -o, --output=FILE         Write output to file instead of stdout
   -s, --set=NAME            Load options from config set
-      --format=FORMAT       Output format: json (default), tsv, or ndjson
+      --format=FORMAT       Output format: json (default), tsv, or jsonl
   -b, --blocks-only         Only extract YAML blocks, ignore frontmatter-only notes
   -m, --frontmatter-only    Only extract frontmatter, ignore YAML blocks
   -a, --all                 Extract everything, override config defaults
@@ -448,9 +448,9 @@ Options:
   -f, --filter=EXPR         Filter records (can be used multiple times)
                             Operators: = (equals), ~ (contains), ^ (starts with), ! (not equals)
                             Examples: type=vertrag, due^2025-02, name~versicher
-      --from-ndjson=PATH    Read records from an NDJSON file (or directory of *.ndjson files)
+      --from-jsonl=PATH    Read records from an JSONL file (or directory of *.jsonl files)
                             and union them into the output. Repeatable. The notes directory
-                            becomes optional when at least one --from-ndjson is given.
+                            becomes optional when at least one --from-jsonl is given.
   -h, --help                Show this help
 `)
 }
