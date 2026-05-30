@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-const version = "0.10.0"
+const version = "0.10.1"
 
 type multiFlag []string
 
@@ -70,6 +70,34 @@ func reorderArgs(args []string, boolFlags map[string]bool) []string {
 		}
 	}
 	return append(flagArgs, posArgs...)
+}
+
+// resolveNotesDir picks the directory to scan by precedence:
+//
+//	explicit CLI/positional > set path > $GRUBBER_NOTES > cwd
+//
+// cwd is the last resort and is used only when there are no --from-ndjson
+// sources: a pure source-only run has no directory to scan, so it must return
+// "". An empty set path is ignored rather than expanded — expandPath("")
+// resolves to the cwd (filepath.Abs("")), which would silently turn a
+// source-only run into a cwd scan. getwd is injected for testability.
+func resolveNotesDir(cliDir, setPath, envNotes string, hasNDJSON bool, getwd func() (string, error)) string {
+	if cliDir != "" {
+		return cliDir
+	}
+	if setPath != "" {
+		expanded, _ := expandPath(setPath)
+		return expanded
+	}
+	if envNotes != "" {
+		return envNotes
+	}
+	if !hasNDJSON {
+		if wd, err := getwd(); err == nil {
+			return wd
+		}
+	}
+	return ""
 }
 
 func runExtract(args []string, pathOverride string) {
@@ -191,17 +219,13 @@ func execute(opts execOpts) {
 
 	finalFormat := cliOr(opts.format, "json")
 
-	// Notes dir: CLI > set path > env > cwd
-	finalNotesDir := opts.notesDir
-	if finalNotesDir == "" {
-		finalNotesDir, _ = expandPath(cfgStr(setCfg, "path"))
-	}
-	if finalNotesDir == "" {
-		finalNotesDir = os.Getenv("GRUBBER_NOTES")
-	}
-	if finalNotesDir == "" && len(opts.fromNDJSON) == 0 {
-		finalNotesDir, _ = os.Getwd()
-	}
+	finalNotesDir := resolveNotesDir(
+		opts.notesDir,
+		cfgStr(setCfg, "path"),
+		os.Getenv("GRUBBER_NOTES"),
+		len(opts.fromNDJSON) > 0,
+		os.Getwd,
+	)
 
 	// Bool options: config default → set → CLI (higher priority wins)
 	blocksOnly := cfg.DefaultBlocksOnly()
