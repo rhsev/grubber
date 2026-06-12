@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
 // fakeGetwd returns a fixed sentinel cwd, so tests can tell "fell back to cwd"
 // apart from "" without depending on the real working directory.
@@ -58,4 +61,13 @@ func TestResolveNotesDir(t *testing.T) {
 			t.Fatalf("empty set path leaked the cwd %q", cwd)
 		}
 	})
+}
+
+func TestReorderArgsUnknownFlagKeepsPositional(t *testing.T) {
+	valueFlags := map[string]bool{"o": true, "format": true}
+	got := reorderArgs([]string{"-x", "notes", "-o", "out.json"}, valueFlags)
+	want := []string{"-x", "-o", "out.json", "notes"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
 }

@@ -83,6 +83,10 @@ func (c *Config) DefaultExtensions() []string {
 	return toStringSlice(c.defaults["extensions"])
 }
 
+func (c *Config) DefaultMergeOn() []string {
+	return toStringSlice(c.defaults["merge_on"])
+}
+
 func toStringSlice(v any) []string {
 	arr, ok := v.([]any)
 	if !ok {

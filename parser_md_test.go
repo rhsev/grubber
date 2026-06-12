@@ -152,3 +152,30 @@ func TestMdExtractNoFrontmatter(t *testing.T) {
 		t.Errorf("expected 1 block, got %d", len(blocks))
 	}
 }
+
+func TestMdExtractCRLF(t *testing.T) {
+	p := &mdParser{}
+	data := []byte("---\r\ntitle: hello\r\n---\r\n\r\n```yaml\r\nfoo: bar\r\n```\r\n")
+	fm, blocks, err := p.Extract("f.md", data, ParseOpts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fm["title"] != "hello" {
+		t.Errorf("frontmatter title: got %v", fm["title"])
+	}
+	if len(blocks) != 1 || blocks[0]["foo"] != "bar" {
+		t.Errorf("blocks: got %v", blocks)
+	}
+}
+
+func TestMdExtractBOM(t *testing.T) {
+	p := &mdParser{}
+	data := []byte("\xef\xbb\xbf---\ntitle: hello\n---\n")
+	fm, _, err := p.Extract("f.md", data, ParseOpts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fm["title"] != "hello" {
+		t.Errorf("BOM-prefixed frontmatter: got %v", fm)
+	}
+}

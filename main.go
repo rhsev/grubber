@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-const version = "0.11.0"
+const version = "0.13.0"
 
 type multiFlag []string
 
@@ -45,8 +45,10 @@ func main() {
 
 // reorderArgs moves positional args to the end so flags are parsed
 // regardless of whether they appear before or after the path argument.
-// boolFlags lists flag names that take no value (so the next token is not consumed).
-func reorderArgs(args []string, boolFlags map[string]bool) []string {
+// valueFlags lists flag names that take a value (so the next token is
+// consumed as that value); unknown or bool flags consume nothing, leaving
+// positional args intact when the user mistypes a flag.
+func reorderArgs(args []string, valueFlags map[string]bool) []string {
 	var flagArgs, posArgs []string
 	i := 0
 	for i < len(args) {
@@ -61,8 +63,7 @@ func reorderArgs(args []string, boolFlags map[string]bool) []string {
 			name = name[:eq]
 		}
 		flagArgs = append(flagArgs, arg)
-		// If flag takes a value and next token isn't a flag, consume it as the value.
-		if !strings.Contains(arg, "=") && !boolFlags[name] && i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+		if !strings.Contains(arg, "=") && valueFlags[name] && i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
 			flagArgs = append(flagArgs, args[i+1])
 			i += 2
 		} else {
@@ -70,6 +71,19 @@ func reorderArgs(args []string, boolFlags map[string]bool) []string {
 		}
 	}
 	return append(flagArgs, posArgs...)
+}
+
+// valueFlagNames returns the names of all registered flags that take a value,
+// i.e. everything except bool flags.
+func valueFlagNames(fs *flag.FlagSet) map[string]bool {
+	names := make(map[string]bool)
+	fs.VisitAll(func(f *flag.Flag) {
+		if b, ok := f.Value.(interface{ IsBoolFlag() bool }); ok && b.IsBoolFlag() {
+			return
+		}
+		names[f.Name] = true
+	})
+	return names
 }
 
 // resolveNotesDir picks the directory to scan by precedence:
@@ -117,6 +131,7 @@ func runExtract(args []string, pathOverride string) {
 		workers         int
 		arrayFieldsStr  string
 		extensionsStr   string
+		mergeOnStr      string
 		filters         multiFlag
 		fromJSONL       multiFlag
 	)
@@ -131,6 +146,7 @@ func runExtract(args []string, pathOverride string) {
 	fs.BoolVar(&frontmatterOnly, "m", false, "Only extract frontmatter")
 	fs.BoolVar(&frontmatterOnly, "frontmatter-only", false, "Only extract frontmatter")
 	fs.BoolVar(&allFlag, "a", false, "Extract everything, override config defaults")
+	fs.BoolVar(&allFlag, "all", false, "Extract everything, override config defaults")
 	fs.BoolVar(&useMmd, "mmd", false, "Also parse MultiMarkdown metadata headers")
 	fs.BoolVar(&noFill, "no-fill", false, "Skip nil-filling missing keys (faster for duckdb)")
 	fs.IntVar(&depth, "d", -1, "Limit directory recursion depth")
@@ -141,13 +157,9 @@ func runExtract(args []string, pathOverride string) {
 	fs.Var(&filters, "f", "Filter records (can be used multiple times)")
 	fs.Var(&filters, "filter", "Filter records (can be used multiple times)")
 	fs.Var(&fromJSONL, "from-jsonl", "Read records from JSONL file or directory (repeatable)")
+	fs.StringVar(&mergeOnStr, "merge-on", "", "Merge --from-jsonl records into scanned records on these key fields (comma-separated)")
 
-	boolFlags := map[string]bool{
-		"b": true, "blocks-only": true,
-		"m": true, "frontmatter-only": true,
-		"a": true, "mmd": true, "no-fill": true,
-	}
-	fs.Parse(reorderArgs(args, boolFlags)) //nolint:errcheck
+	fs.Parse(reorderArgs(args, valueFlagNames(fs))) //nolint:errcheck
 
 	// Detect which flags were explicitly provided
 	set := make(map[string]bool)
@@ -165,7 +177,7 @@ func runExtract(args []string, pathOverride string) {
 		blocksOnlySet:      set["b"] || set["blocks-only"],
 		frontmatterOnly:    frontmatterOnly,
 		frontmatterOnlySet: set["m"] || set["frontmatter-only"],
-		allSet:             set["a"],
+		allSet:             set["a"] || set["all"],
 		useMmd:             useMmd,
 		useMmdSet:          set["mmd"],
 		noFill:             noFill,
@@ -174,6 +186,8 @@ func runExtract(args []string, pathOverride string) {
 		workers:            workers,
 		arrayFieldsStr:     arrayFieldsStr,
 		extensionsStr:      extensionsStr,
+		mergeOnStr:         mergeOnStr,
+		mergeOnSet:         set["merge-on"],
 		filters:            []string(filters),
 		notesDir:           pathOverride,
 		fromJSONL:          []string(fromJSONL),
@@ -197,6 +211,8 @@ type execOpts struct {
 	workers            int
 	arrayFieldsStr     string
 	extensionsStr      string
+	mergeOnStr         string
+	mergeOnSet         bool
 	filters            []string
 	notesDir           string
 	fromJSONL          []string
@@ -218,12 +234,31 @@ func execute(opts execOpts) {
 	}
 
 	finalFormat := cliOr(opts.format, "json")
+	switch finalFormat {
+	case "json", "tsv", "jsonl":
+	default:
+		fmt.Fprintf(os.Stderr, "Error: unknown format '%s' (expected json, tsv, or jsonl)\n", finalFormat)
+		os.Exit(1)
+	}
+
+	// from_jsonl: set → CLI (CLI replaces). Set paths get ~ expansion —
+	// the shell only expands CLI arguments. Resolved before the notes dir
+	// so a source-only set (from_jsonl, no path) doesn't fall back to a
+	// cwd scan.
+	fromJSONL := opts.fromJSONL
+	if len(fromJSONL) == 0 {
+		for _, p := range cfgStrSlice(setCfg, "from_jsonl") {
+			if expanded, err := expandPath(p); err == nil {
+				fromJSONL = append(fromJSONL, expanded)
+			}
+		}
+	}
 
 	finalNotesDir := resolveNotesDir(
 		opts.notesDir,
 		cfgStr(setCfg, "path"),
 		os.Getenv("GRUBBER_NOTES"),
-		len(opts.fromJSONL) > 0,
+		len(fromJSONL) > 0,
 		os.Getwd,
 	)
 
@@ -273,6 +308,16 @@ func execute(opts execOpts) {
 		cfgStrSlice(setCfg, "filters")...,
 	), opts.filters...))
 
+	// merge_on: config default → set → CLI. An explicitly given --merge-on
+	// always wins, so --merge-on="" disables a configured default.
+	mergeOn := cfg.DefaultMergeOn()
+	if mo := cfgStrSlice(setCfg, "merge_on"); mo != nil {
+		mergeOn = mo
+	}
+	if opts.mergeOnSet {
+		mergeOn = splitTrim(opts.mergeOnStr, ",")
+	}
+
 	// extensions: config default → set → env → CLI (nil = all registered parsers)
 	extensions := cfg.DefaultExtensions()
 	if exts := cfgStrSlice(setCfg, "extensions"); exts != nil {
@@ -285,7 +330,7 @@ func execute(opts execOpts) {
 		extensions = splitTrim(opts.extensionsStr, ",")
 	}
 
-	g, err := NewGrubber(finalNotesDir, blocksOnly, frontmatterOnly, useMmd, opts.noFill, depth, opts.workers, arrayFields, filters, extensions, opts.fromJSONL)
+	g, err := NewGrubber(finalNotesDir, blocksOnly, frontmatterOnly, useMmd, opts.noFill, depth, opts.workers, arrayFields, filters, extensions, fromJSONL, mergeOn)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -451,6 +496,10 @@ Options:
       --from-jsonl=PATH    Read records from an JSONL file (or directory of *.jsonl files)
                             and union them into the output. Repeatable. The notes directory
                             becomes optional when at least one --from-jsonl is given.
+      --merge-on=KEYS      Merge --from-jsonl records into scanned records sharing the same
+                            values on these fields (comma-separated, e.g. id,binder). The
+                            scanned record wins; missing fields are back-filled from the
+                            JSONL record. Filters apply after the merge.
   -h, --help                Show this help
 `)
 }

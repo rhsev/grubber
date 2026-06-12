@@ -53,6 +53,9 @@ func readJSONLSource(srcPath string) ([]Record, error) {
 
 	var records []Record
 	scanner := bufio.NewScanner(f)
+	// Default token limit is 64KB; records with large fields exceed that
+	// and would abort the whole file.
+	scanner.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
 	lineno := 0
 	for scanner.Scan() {
 		lineno++

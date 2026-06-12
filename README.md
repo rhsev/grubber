@@ -179,7 +179,22 @@ grubber extract --from-jsonl /path/to/cache1.jsonl --from-jsonl /path/to/dir/
 
 `--from-jsonl` is repeatable. If a path is a directory, every `*.jsonl` file directly inside it is read (non-recursive, sorted by filename).
 
-**Merge semantics.** Source records are concatenated with scanned records — no deduplication. Scanned records come first, then sources in the order given.
+**Union semantics.** By default source records are concatenated with scanned records — no deduplication. Scanned records come first, then sources in the order given.
+
+**Merging (`--merge-on`).** When a JSONL index and scanned annotation files describe the same logical records in two layers, `--merge-on KEYS` collapses them:
+
+```sh
+# markbinder: collection index + Markdown annotations, one record per (id, binder)
+grubber extract ~/notes --from-jsonl ~/notes/collections/ --merge-on id,binder
+```
+
+A source record that matches a scanned record on all key fields is dropped after back-filling any fields the scanned record lacks (the scanned record wins; `_note_file`/`_mtime` are never touched). Unmatched source records pass through. The first key field is the primary identity — records without it are never merge candidates; later keys default to `""` when absent. Filters run *after* the merge, so they see back-filled fields. With `--format jsonl` the merge buffers instead of streaming.
+
+`merge_on` can live in the config (`defaults:` or a set), so a schema you always use needs no flag; an explicit `--merge-on=` (empty) disables it for one run. Together with `from_jsonl` in a set, the whole database definition moves into config and the command shrinks to the query:
+
+```sh
+grubber extract -s notes -f binder=project-alpha
+```
 
 **Provenance (`_note_file` / `_mtime`).** grubber guarantees every emitted record carries `_note_file`:
 - If a source record already has `_note_file` (e.g., from a prior grubber run): **preserved unchanged.** Round-trip fidelity — the original Markdown path is kept.
@@ -198,6 +213,7 @@ defaults:
   blocks_only: true
   array_fields: [keywords, category]
   extensions: [.md, .typ]
+  merge_on: [id, binder]
 
 sets:
   contracts:
@@ -208,6 +224,12 @@ sets:
   people:
     path: ~/notes
     filters: [type=person]
+
+  # a full database definition: scan + JSONL index + dedup
+  notes:
+    path: ~/notes
+    from_jsonl: ["~/notes/collections/"]
+    merge_on: [id, binder]
 ```
 
 Use sets with `grubber extract --set contracts`.
@@ -241,6 +263,7 @@ CLI flags > Config set > Environment variables > Config defaults > Built-in defa
     --no-fill             Skip nil-filling missing keys (useful for DuckDB)
 -f, --filter EXPR         Filter records (repeatable)
     --from-jsonl PATH    Read records from JSONL file or directory; union into output (repeatable)
+    --merge-on KEYS       Merge --from-jsonl records into scanned records sharing these key fields
 -h, --help                Show help
 ```
 
@@ -280,8 +303,8 @@ See [examples/SCHEMA.md](examples/SCHEMA.md) for an example schema.
 grubber follows YAML 1.2. Values that look like numbers are parsed as numbers. If you want a value like a phone number or ID with a leading zero to remain a string, quote it explicitly:
 
 ```yaml
-number: "01622502904"   # string
-number: 01622502904     # parsed as a number
+number: "01711234567"   # string
+number: 01711234567     # parsed as a number
 ```
 
 ## Design

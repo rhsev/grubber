@@ -33,9 +33,14 @@ type Grubber struct {
 	filter          *Filter
 	singleFile      bool
 	fromJSONL       []string
+	mergeOn         []string
+	// postFilter holds the filters while --merge-on is active: they must run
+	// against the *merged* records, otherwise a filter on an annotation field
+	// would drop the index record before it can back-fill its fields.
+	postFilter *Filter
 }
 
-func NewGrubber(notesDir string, blocksOnly, frontmatterOnly, useMmd, noFill bool, depth *int, workers int, arrayFields, filters, extensions, fromJSONL []string) (*Grubber, error) {
+func NewGrubber(notesDir string, blocksOnly, frontmatterOnly, useMmd, noFill bool, depth *int, workers int, arrayFields, filters, extensions, fromJSONL, mergeOn []string) (*Grubber, error) {
 	var expanded string
 	var singleFile bool
 	if notesDir != "" {
@@ -63,6 +68,10 @@ func NewGrubber(notesDir string, blocksOnly, frontmatterOnly, useMmd, noFill boo
 	if len(extensions) == 0 {
 		extensions = registeredExtensions()
 	}
+	var postFilter *Filter
+	if len(mergeOn) > 0 {
+		postFilter, f = f, nil
+	}
 	return &Grubber{
 		notesDir:        expanded,
 		blocksOnly:      blocksOnly,
@@ -76,6 +85,8 @@ func NewGrubber(notesDir string, blocksOnly, frontmatterOnly, useMmd, noFill boo
 		filter:          f,
 		singleFile:      singleFile,
 		fromJSONL:       fromJSONL,
+		mergeOn:         mergeOn,
+		postFilter:      postFilter,
 	}, nil
 }
 
@@ -120,22 +131,10 @@ func (g *Grubber) processFiles(files []string) <-chan []Record {
 	return resultCh
 }
 
-func (g *Grubber) Extract(files []string) (records []Record, keys []string, err error) {
-	var allKeys map[string]struct{}
-	if !g.noFill {
-		allKeys = make(map[string]struct{})
-	}
-
-	accumulate := func(r Record) {
-		records = append(records, r)
-		if allKeys != nil {
-			for k := range r {
-				allKeys[k] = struct{}{}
-			}
-		}
-	}
-
-	// Scan path
+// collectRecords gathers the scan-path and JSONL-source records separately,
+// applying array normalization and the per-record filter (nil while
+// --merge-on is active; see postFilter).
+func (g *Grubber) collectRecords(files []string) (scanned, jsonl []Record, err error) {
 	if g.notesDir != "" {
 		if files == nil {
 			files, err = g.textFiles()
@@ -144,13 +143,10 @@ func (g *Grubber) Extract(files []string) (records []Record, keys []string, err 
 			}
 		}
 		for fileRecords := range g.processFiles(files) {
-			for _, r := range fileRecords {
-				accumulate(r)
-			}
+			scanned = append(scanned, fileRecords...)
 		}
 	}
 
-	// JSONL source path
 	if len(g.fromJSONL) > 0 {
 		var srcPaths []string
 		srcPaths, err = expandJSONLSources(g.fromJSONL)
@@ -158,11 +154,9 @@ func (g *Grubber) Extract(files []string) (records []Record, keys []string, err 
 			return
 		}
 		for _, srcPath := range srcPaths {
-			var srcRecords []Record
-			srcRecords, err = readJSONLSource(srcPath)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error reading %s: %v\n", srcPath, err)
-				err = nil
+			srcRecords, rerr := readJSONLSource(srcPath)
+			if rerr != nil {
+				fmt.Fprintf(os.Stderr, "Error reading %s: %v\n", srcPath, rerr)
 				continue
 			}
 			for _, r := range srcRecords {
@@ -172,9 +166,42 @@ func (g *Grubber) Extract(files []string) (records []Record, keys []string, err 
 				if g.filter != nil && !g.filter.Match(r) {
 					continue
 				}
-				accumulate(r)
+				jsonl = append(jsonl, r)
 			}
 		}
+	}
+	return
+}
+
+// mergedRecords runs collect → merge → post-filter, the shared front half of
+// Extract and the buffered StreamJSONL path.
+func (g *Grubber) mergedRecords(files []string) ([]Record, error) {
+	scanned, jsonl, err := g.collectRecords(files)
+	if err != nil {
+		return nil, err
+	}
+	var records []Record
+	if len(g.mergeOn) > 0 {
+		records = mergeRecords(scanned, jsonl, g.mergeOn)
+	} else {
+		records = append(scanned, jsonl...)
+	}
+	if g.postFilter != nil {
+		kept := records[:0]
+		for _, r := range records {
+			if g.postFilter.Match(r) {
+				kept = append(kept, r)
+			}
+		}
+		records = kept
+	}
+	return records, nil
+}
+
+func (g *Grubber) Extract(files []string) (records []Record, keys []string, err error) {
+	records, err = g.mergedRecords(files)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	if len(records) == 0 {
@@ -182,6 +209,12 @@ func (g *Grubber) Extract(files []string) (records []Record, keys []string, err 
 	}
 
 	if !g.noFill {
+		allKeys := make(map[string]struct{})
+		for _, r := range records {
+			for k := range r {
+				allKeys[k] = struct{}{}
+			}
+		}
 		keys = make([]string, 0, len(allKeys))
 		for k := range allKeys {
 			keys = append(keys, k)
@@ -213,21 +246,45 @@ func (g *Grubber) Extract(files []string) (records []Record, keys []string, err 
 }
 
 // StreamJSONL writes records as newline-delimited JSON as they are processed,
-// without buffering all records in memory first.
+// without buffering all records in memory first. With --merge-on, merging
+// needs the full record set, so that path buffers like Extract does.
 func (g *Grubber) StreamJSONL(w io.Writer) error {
 	enc := json.NewEncoder(w)
+
+	if len(g.mergeOn) > 0 {
+		records, err := g.mergedRecords(nil)
+		if err != nil {
+			return err
+		}
+		for _, r := range records {
+			if err := enc.Encode(r); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
 
 	if g.notesDir != "" {
 		files, err := g.textFiles()
 		if err != nil {
 			return err
 		}
+		// On encode error keep draining the channel so the worker
+		// goroutines can finish instead of blocking on send forever.
+		var encErr error
 		for fileRecords := range g.processFiles(files) {
+			if encErr != nil {
+				continue
+			}
 			for _, r := range fileRecords {
 				if err := enc.Encode(r); err != nil {
-					return err
+					encErr = err
+					break
 				}
 			}
+		}
+		if encErr != nil {
+			return encErr
 		}
 	}
 
@@ -347,7 +404,11 @@ func (g *Grubber) textFiles() ([]string, error) {
 				if err != nil {
 					return nil, err
 				}
-				files = append(files, matches...)
+				for _, m := range matches {
+					if !inHiddenDir(g.notesDir, m) {
+						files = append(files, m)
+					}
+				}
 			}
 		}
 		return files, nil
@@ -414,7 +475,7 @@ func (g *Grubber) OutputTSV(records []Record, keys []string, w io.Writer) error 
 			case []any:
 				parts := make([]string, len(val))
 				for j, a := range val {
-					parts[j] = fmt.Sprint(a)
+					parts[j] = replacer.Replace(fmt.Sprint(a))
 				}
 				row[i] = strings.Join(parts, ", ")
 			default:
@@ -447,6 +508,9 @@ func stringifyDates(v any) any {
 }
 
 func expandPath(path string) (string, error) {
+	if path == "~" {
+		return os.UserHomeDir()
+	}
 	if strings.HasPrefix(path, "~/") {
 		home, err := os.UserHomeDir()
 		if err != nil {
@@ -455,6 +519,23 @@ func expandPath(path string) (string, error) {
 		return filepath.Join(home, path[2:]), nil
 	}
 	return filepath.Abs(path)
+}
+
+// inHiddenDir reports whether path lies inside a hidden directory below root.
+// Mirrors the WalkDir skip rule: hidden directories are excluded, hidden files
+// themselves are not.
+func inHiddenDir(root, path string) bool {
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return false
+	}
+	parts := strings.Split(rel, string(filepath.Separator))
+	for _, p := range parts[:len(parts)-1] {
+		if strings.HasPrefix(p, ".") {
+			return true
+		}
+	}
+	return false
 }
 
 func containsStr(slice []string, item string) bool {

@@ -25,7 +25,7 @@ func TestJSONLPureReplay(t *testing.T) {
 		`{"name":"alice","_note_file":"/notes/alice.md","_mtime":"2024-01-01T00:00:00Z"}`,
 		`{"name":"bob","_note_file":"/notes/bob.md","_mtime":"2024-01-01T00:00:00Z"}`,
 	})
-	g, err := NewGrubber("", false, false, false, true, nil, 0, nil, nil, nil, []string{p})
+	g, err := NewGrubber("", false, false, false, true, nil, 0, nil, nil, nil, []string{p}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,11 +48,11 @@ func TestJSONLMerge(t *testing.T) {
 		`{"name":"extra-record","type":"test","_note_file":"/extra.md"}`,
 	})
 
-	gMerge, err := NewGrubber("examples", false, false, false, true, nil, 0, nil, nil, nil, []string{extraP})
+	gMerge, err := NewGrubber("examples", false, false, false, true, nil, 0, nil, nil, nil, []string{extraP}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	gScan, err := NewGrubber("examples", false, false, false, true, nil, 0, nil, nil, nil, nil)
+	gScan, err := NewGrubber("examples", false, false, false, true, nil, 0, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +77,7 @@ func TestJSONLPreserveElseInject(t *testing.T) {
 		`{"name":"alice","_note_file":"/original/alice.md","_mtime":"2020-01-01T00:00:00Z"}`,
 		`{"name":"bob"}`,
 	})
-	g, err := NewGrubber("", false, false, false, true, nil, 0, nil, nil, nil, []string{p})
+	g, err := NewGrubber("", false, false, false, true, nil, 0, nil, nil, nil, []string{p}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +118,7 @@ func TestJSONLRoundTrip(t *testing.T) {
 	if _, err := os.Stat("examples"); err != nil {
 		t.Skip("examples dir not available")
 	}
-	g1, err := NewGrubber("examples", false, false, false, true, nil, 0, nil, nil, nil, nil)
+	g1, err := NewGrubber("examples", false, false, false, true, nil, 0, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,7 +142,7 @@ func TestJSONLRoundTrip(t *testing.T) {
 	}
 	f.Close()
 
-	g2, err := NewGrubber("", false, false, false, true, nil, 0, nil, nil, nil, []string{jsonlPath})
+	g2, err := NewGrubber("", false, false, false, true, nil, 0, nil, nil, nil, []string{jsonlPath}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +169,7 @@ func TestJSONLDirectorySource(t *testing.T) {
 	p1 := writeTempJSONL(t, dir, "a.jsonl", []string{`{"name":"from-a"}`})
 	p2 := writeTempJSONL(t, dir, "b.jsonl", []string{`{"name":"from-b"}`})
 
-	g, err := NewGrubber("", false, false, false, true, nil, 0, nil, nil, nil, []string{dir})
+	g, err := NewGrubber("", false, false, false, true, nil, 0, nil, nil, nil, []string{dir}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -227,7 +227,7 @@ func TestJSONLFilterApplied(t *testing.T) {
 		`{"type":"keep","name":"alice"}`,
 		`{"type":"drop","name":"bob"}`,
 	})
-	g, err := NewGrubber("", false, false, false, true, nil, 0, nil, []string{"type=keep"}, nil, []string{p})
+	g, err := NewGrubber("", false, false, false, true, nil, 0, nil, []string{"type=keep"}, nil, []string{p}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -245,7 +245,7 @@ func TestJSONLFilterApplied(t *testing.T) {
 
 // Test 8: No directory and no source is an error
 func TestJSONLNoSourceNoDir(t *testing.T) {
-	_, err := NewGrubber("", false, false, false, false, nil, 0, nil, nil, nil, nil)
+	_, err := NewGrubber("", false, false, false, false, nil, 0, nil, nil, nil, nil, nil)
 	if err == nil {
 		t.Fatal("expected error when no directory and no --from-jsonl source")
 	}
@@ -258,7 +258,7 @@ func TestJSONLBlocksFrontmatterModeNoEffect(t *testing.T) {
 		`{"name":"alice","_note_file":"/notes/alice.md"}`,
 	})
 
-	gBlocks, err := NewGrubber("", true, false, false, true, nil, 0, nil, nil, nil, []string{p})
+	gBlocks, err := NewGrubber("", true, false, false, true, nil, 0, nil, nil, nil, []string{p}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -270,7 +270,7 @@ func TestJSONLBlocksFrontmatterModeNoEffect(t *testing.T) {
 		t.Errorf("blocks-only should not filter JSONL source records, got %d records", len(records))
 	}
 
-	gFM, err := NewGrubber("", false, true, false, true, nil, 0, nil, nil, nil, []string{p})
+	gFM, err := NewGrubber("", false, true, false, true, nil, 0, nil, nil, nil, []string{p}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -280,5 +280,18 @@ func TestJSONLBlocksFrontmatterModeNoEffect(t *testing.T) {
 	}
 	if len(records2) != 1 {
 		t.Errorf("frontmatter-only should not filter JSONL source records, got %d records", len(records2))
+	}
+}
+
+func TestJSONLLongLine(t *testing.T) {
+	dir := t.TempDir()
+	big := `{"name":"big","data":"` + strings.Repeat("x", 100*1024) + `"}`
+	p := writeTempJSONL(t, dir, "big.jsonl", []string{big, `{"name":"small"}`})
+	records, err := readJSONLSource(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 2 {
+		t.Fatalf("expected 2 records, got %d", len(records))
 	}
 }

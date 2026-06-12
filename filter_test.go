@@ -125,3 +125,16 @@ func TestFilterMultipleConditions(t *testing.T) {
 		t.Error("not all conditions met should not match")
 	}
 }
+
+func TestFilterNotEqualsAlias(t *testing.T) {
+	f, err := NewFilter([]string{"type!=vertrag"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.Match(Record{"type": "vertrag"}) {
+		t.Error("type!=vertrag should reject type=vertrag")
+	}
+	if !f.Match(Record{"type": "meeting"}) {
+		t.Error("type!=vertrag should accept type=meeting")
+	}
+}

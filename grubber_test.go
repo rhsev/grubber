@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -152,5 +154,43 @@ func TestOutputTSVTabInValue(t *testing.T) {
 	lines := strings.Split(strings.TrimRight(buf.String(), "\n"), "\n")
 	if strings.Contains(lines[1], "\t") {
 		t.Errorf("tab in value should be replaced: got %q", lines[1])
+	}
+}
+
+func TestOutputTSVTabInArrayValue(t *testing.T) {
+	g := &Grubber{}
+	records := []Record{{"tags": []any{"a\tb", "c\nd"}}}
+	keys := []string{"tags"}
+	var buf bytes.Buffer
+	if err := g.OutputTSV(records, keys, &buf); err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimRight(buf.String(), "\n"), "\n")
+	if len(lines) != 2 || strings.Contains(lines[1], "\t") {
+		t.Errorf("tabs/newlines in array values should be replaced: got %q", buf.String())
+	}
+}
+
+func TestTextFilesDepthSkipsHiddenDirs(t *testing.T) {
+	dir := t.TempDir()
+	for _, sub := range []string{".hidden", "sub"} {
+		if err := os.MkdirAll(filepath.Join(dir, sub), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, sub, "note.md"), []byte("---\ntype: x\n---\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	depth := 1
+	g, err := NewGrubber(dir, false, false, false, true, &depth, 0, nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	files, err := g.textFiles()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 1 || filepath.Base(filepath.Dir(files[0])) != "sub" {
+		t.Errorf("expected only sub/note.md, got %v", files)
 	}
 }

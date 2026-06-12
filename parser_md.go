@@ -15,14 +15,16 @@ func init() {
 }
 
 var (
-	frontmatterRe = regexp.MustCompile("(?s)^---\n(.*?)\n---\n")
-	yamlBlockRe   = regexp.MustCompile("(?s)```yaml\n(.*?)\n```")
+	frontmatterRe = regexp.MustCompile("(?s)^---\r?\n(.*?)\r?\n---\r?\n")
+	yamlBlockRe   = regexp.MustCompile("(?s)```yaml\r?\n(.*?)\r?\n```")
 	yamlMarker    = []byte("```yaml")
 )
 
 type mdParser struct{}
 
 func (p *mdParser) Extract(path string, data []byte, opts ParseOpts) (Record, []Record, error) {
+	data = bytes.TrimPrefix(data, []byte("\xef\xbb\xbf"))
+
 	var frontmatter Record
 	var body []byte
 

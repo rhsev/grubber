@@ -6,7 +6,8 @@ import (
 	"strings"
 )
 
-var filterRe = regexp.MustCompile(`^([^=~^!]+)([=~^!])(.*)$`)
+// "!=" is accepted as an alias for "!"; m[2][0] yields '!' for both.
+var filterRe = regexp.MustCompile(`^([^=~^!]+)(!=|[=~^!])(.*)$`)
 
 type condition struct {
 	field string
