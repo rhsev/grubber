@@ -34,10 +34,24 @@ type Grubber struct {
 	singleFile      bool
 	fromJSONL       []string
 	mergeOn         []string
-	// postFilter holds the filters while --merge-on is active: they must run
-	// against the *merged* records, otherwise a filter on an annotation field
-	// would drop the index record before it can back-fill its fields.
+	// explode names a field whose array value is expanded into one record per
+	// element before merge (see explodeRecords). Empty = disabled.
+	explode string
+	// postFilter holds the filters while --merge-on or --explode is active: they
+	// must run against the *merged/exploded* records, otherwise a filter on an
+	// annotation field would drop the index record before it can back-fill its
+	// fields, or a filter on the exploded field would keep the wrong elements.
 	postFilter *Filter
+}
+
+// SetExplode enables array explosion on the given field. Like --merge-on it
+// defers filtering to after the explode step (filters then see the per-element
+// rows). Safe to call when --merge-on already moved the filters to postFilter.
+func (g *Grubber) SetExplode(field string) {
+	g.explode = field
+	if field != "" && g.filter != nil {
+		g.postFilter, g.filter = g.filter, nil
+	}
 }
 
 func NewGrubber(notesDir string, blocksOnly, frontmatterOnly, useMmd, noFill bool, depth *int, workers int, arrayFields, filters, extensions, fromJSONL, mergeOn []string) (*Grubber, error) {
@@ -180,6 +194,10 @@ func (g *Grubber) mergedRecords(files []string) ([]Record, error) {
 	if err != nil {
 		return nil, err
 	}
+	if g.explode != "" {
+		scanned = explodeRecords(scanned, g.explode)
+		jsonl = explodeRecords(jsonl, g.explode)
+	}
 	var records []Record
 	if len(g.mergeOn) > 0 {
 		records = mergeRecords(scanned, jsonl, g.mergeOn)
@@ -251,7 +269,7 @@ func (g *Grubber) Extract(files []string) (records []Record, keys []string, err 
 func (g *Grubber) StreamJSONL(w io.Writer) error {
 	enc := json.NewEncoder(w)
 
-	if len(g.mergeOn) > 0 {
+	if len(g.mergeOn) > 0 || g.explode != "" {
 		records, err := g.mergedRecords(nil)
 		if err != nil {
 			return err

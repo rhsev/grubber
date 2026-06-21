@@ -87,6 +87,13 @@ func (c *Config) DefaultMergeOn() []string {
 	return toStringSlice(c.defaults["merge_on"])
 }
 
+func (c *Config) DefaultExplode() string {
+	if v, ok := c.defaults["explode"].(string); ok {
+		return v
+	}
+	return ""
+}
+
 func toStringSlice(v any) []string {
 	arr, ok := v.([]any)
 	if !ok {

@@ -132,6 +132,7 @@ func runExtract(args []string, pathOverride string) {
 		arrayFieldsStr  string
 		extensionsStr   string
 		mergeOnStr      string
+		explodeStr      string
 		filters         multiFlag
 		fromJSONL       multiFlag
 	)
@@ -158,6 +159,7 @@ func runExtract(args []string, pathOverride string) {
 	fs.Var(&filters, "filter", "Filter records (can be used multiple times)")
 	fs.Var(&fromJSONL, "from-jsonl", "Read records from JSONL file or directory (repeatable)")
 	fs.StringVar(&mergeOnStr, "merge-on", "", "Merge --from-jsonl records into scanned records on these key fields (comma-separated)")
+	fs.StringVar(&explodeStr, "explode", "", "Expand a field's array value into one record per element (before merge)")
 
 	fs.Parse(reorderArgs(args, valueFlagNames(fs))) //nolint:errcheck
 
@@ -188,6 +190,8 @@ func runExtract(args []string, pathOverride string) {
 		extensionsStr:      extensionsStr,
 		mergeOnStr:         mergeOnStr,
 		mergeOnSet:         set["merge-on"],
+		explodeStr:         explodeStr,
+		explodeSet:         set["explode"],
 		filters:            []string(filters),
 		notesDir:           pathOverride,
 		fromJSONL:          []string(fromJSONL),
@@ -213,6 +217,8 @@ type execOpts struct {
 	extensionsStr      string
 	mergeOnStr         string
 	mergeOnSet         bool
+	explodeStr         string
+	explodeSet         bool
 	filters            []string
 	notesDir           string
 	fromJSONL          []string
@@ -318,6 +324,16 @@ func execute(opts execOpts) {
 		mergeOn = splitTrim(opts.mergeOnStr, ",")
 	}
 
+	// explode: config default → set → CLI. --explode="" disables a configured
+	// default. A single field name (not a list).
+	explode := cfg.DefaultExplode()
+	if ex, ok := setCfg["explode"].(string); ok {
+		explode = ex
+	}
+	if opts.explodeSet {
+		explode = strings.TrimSpace(opts.explodeStr)
+	}
+
 	// extensions: config default → set → env → CLI (nil = all registered parsers)
 	extensions := cfg.DefaultExtensions()
 	if exts := cfgStrSlice(setCfg, "extensions"); exts != nil {
@@ -335,6 +351,7 @@ func execute(opts execOpts) {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
+	g.SetExplode(explode)
 
 	var out *os.File
 	if opts.outputFile != "" {
@@ -500,6 +517,10 @@ Options:
                             values on these fields (comma-separated, e.g. id,binder). The
                             scanned record wins; missing fields are back-filled from the
                             JSONL record. Filters apply after the merge.
+      --explode=FIELD      Expand a field whose value is an array into one record per
+                            element (the element as a scalar), before merge. Other fields
+                            are copied to each row; an empty array yields one row without
+                            the field. Pairs with --merge-on for one-record-per-file indexes.
   -h, --help                Show this help
 `)
 }

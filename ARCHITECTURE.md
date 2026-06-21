@@ -53,6 +53,10 @@ JSONL files named on `--from-jsonl` are a second input alongside the scan path. 
 
 **This is not a parser.** `source_jsonl.go` is a separate input stage, not a FileParser registered in the format registry. It feeds the same filter/array-normalization/output path as scanned records. `-b`/`-m` (blocks-only/frontmatter-only) are scan-path concepts and do not filter merge-source records.
 
+## Explode (`--explode`)
+
+`explode.go` adds one optional stage in `mergedRecords`, between collection and merge: a record whose named field holds an array becomes one record per element (the element as a scalar), other fields copied verbatim. Scalar/absent values pass through; an empty array yields one row without the field. Like `--merge-on`, enabling it (via `SetExplode`) moves the filters to `postFilter` so they run *after* the explode — otherwise the non-matching elements of an exploded array would leak past a filter on that field. The pipeline becomes **collect → explode → merge → post-filter**. Its purpose is the one-record-per-file index (`binder` as an array) projecting into the per-`(id, binder)` rows that `--merge-on id,binder` and downstream consumers expect; pure additive, off unless requested.
+
 ## A few non-obvious decisions
 
 **YAML Node API.** yaml.v3 errors out on duplicate keys in a mapping. Real notes sometimes have them. The low-level `yaml.Node` API lets grubber walk key-value pairs manually and use last-value-wins, the same as most editors would.

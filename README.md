@@ -184,11 +184,19 @@ grubber extract --from-jsonl /path/to/cache1.jsonl --from-jsonl /path/to/dir/
 **Merging (`--merge-on`).** When a JSONL index and scanned annotation files describe the same logical records in two layers, `--merge-on KEYS` collapses them:
 
 ```sh
-# markbinder: collection index + Markdown annotations, one record per (id, binder)
+# fileregister: collection index + Markdown annotations, one record per file
 grubber extract ~/notes --from-jsonl ~/notes/collections/ --merge-on id,binder
 ```
 
 A source record that matches a scanned record on all key fields is dropped after back-filling any fields the scanned record lacks (the scanned record wins; `_note_file`/`_mtime` are never touched). Unmatched source records pass through. The first key field is the primary identity — records without it are never merge candidates; later keys default to `""` when absent. Filters run *after* the merge, so they see back-filled fields. With `--format jsonl` the merge buffers instead of streaming.
+
+**Exploding (`--explode FIELD`).** When the index keeps a single record per file with a field holding an array (e.g. fileregister stores `binder: [projekt-a, lesen]`), `--explode FIELD` expands each such record into one row per element — the element as a scalar — *before* the merge. Per-binder Markdown blocks carry a single `binder`, so the exploded index rows then line up and collapse on `(id, binder)`:
+
+```sh
+grubber extract ~/notes --from-jsonl ~/notes/collections/ --explode binder --merge-on id,binder -f binder=projekt-a
+```
+
+Scalar or absent values pass through unchanged; an empty array yields one row without the field (a binderless row). All other fields, including provenance, are copied to every row. Like `--merge-on`, filters run *after* the explode (so `-f binder=projekt-a` keeps only the matching membership), and `--explode FIELD` can live in `defaults:`/a set (an explicit `--explode=` disables it). For a **per-file** view, omit `--explode`: a filter already matches a value *inside* an array (`-f binder=lesen` matches `[projekt-a, lesen]`).
 
 `merge_on` can live in the config (`defaults:` or a set), so a schema you always use needs no flag; an explicit `--merge-on=` (empty) disables it for one run. Together with `from_jsonl` in a set, the whole database definition moves into config and the command shrinks to the query:
 
@@ -264,6 +272,7 @@ CLI flags > Config set > Environment variables > Config defaults > Built-in defa
 -f, --filter EXPR         Filter records (repeatable)
     --from-jsonl PATH    Read records from JSONL file or directory; union into output (repeatable)
     --merge-on KEYS       Merge --from-jsonl records into scanned records sharing these key fields
+    --explode FIELD       Expand a field's array value into one record per element (before merge)
 -h, --help                Show help
 ```
 
