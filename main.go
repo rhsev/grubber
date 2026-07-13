@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-const version = "0.13.0"
+const version = "0.14.1"
 
 type multiFlag []string
 

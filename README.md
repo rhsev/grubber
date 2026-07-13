@@ -179,6 +179,8 @@ grubber extract --from-jsonl /path/to/cache1.jsonl --from-jsonl /path/to/dir/
 
 `--from-jsonl` is repeatable. If a path is a directory, every `*.jsonl` file directly inside it is read (non-recursive, sorted by filename).
 
+When the source is a fileregister index (`collections/*.jsonl`), the wire format is fixed by the shared contract in [fileregister's NOTES-schema.md §JSONL contract](https://github.com/rhsev/fileregister/blob/main/NOTES-schema.md) (schema 3: `id` string, `binder` array, `_`-prefixed keys injected at read time — grubber's preserve-else-inject for `_note_file`/`_mtime` matches it).
+
 **Union semantics.** By default source records are concatenated with scanned records — no deduplication. Scanned records come first, then sources in the order given.
 
 **Merging (`--merge-on`).** When a JSONL index and scanned annotation files describe the same logical records in two layers, `--merge-on KEYS` collapses them:
@@ -331,3 +333,7 @@ number: 01711234567     # parsed as a number
 ## License
 
 MIT
+
+---
+
+*Queried by [matterbase](https://github.com/rhsev/matterbase) and [mark-twin](https://github.com/rhsev/mark-twin). Part of a family of plain-text tools — the [profile page](https://github.com/rhsev) has the map.*

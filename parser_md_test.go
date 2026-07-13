@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
 
 func TestParseYAMLStringBasic(t *testing.T) {
 	r := parseYAMLString([]byte("title: hello\ncount: 42\n"))
@@ -22,6 +25,25 @@ func TestParseYAMLStringDate(t *testing.T) {
 	r := parseYAMLString([]byte("due: 2024-03-15\n"))
 	if r["due"] != "2024-03-15" {
 		t.Errorf("date should be stringified, got %v", r["due"])
+	}
+}
+
+func TestParseYAMLStringFlowMappingKey(t *testing.T) {
+	// An unquoted {{...}} placeholder decodes to a mapping with a non-string
+	// key. The record must still survive json.Marshal.
+	r := parseYAMLString([]byte("Source: {{src.home}}\n"))
+	if _, err := json.Marshal(r); err != nil {
+		t.Errorf("record must be JSON-marshalable, got %v", err)
+	}
+}
+
+func TestParseYAMLStringNaN(t *testing.T) {
+	r := parseYAMLString([]byte("value: .nan\ninf: .inf\n"))
+	if r["value"] != nil || r["inf"] != nil {
+		t.Errorf("NaN/Inf should normalize to nil, got %v / %v", r["value"], r["inf"])
+	}
+	if _, err := json.Marshal(r); err != nil {
+		t.Errorf("record must be JSON-marshalable, got %v", err)
 	}
 }
 
@@ -99,6 +121,28 @@ func TestParseYAMLBlocks(t *testing.T) {
 	}
 	if blocks[1]["baz"] != "qux" {
 		t.Errorf("block 1 baz: got %v", blocks[1]["baz"])
+	}
+}
+
+func TestParseYAMLBlocksIndentedFence(t *testing.T) {
+	// Block inside a list item: both fences indented. The indented closing
+	// fence must terminate the block — prose below must not leak in.
+	body := []byte("1. item:\n\n   ```yaml\n   sync_dir: ~/Sync\n   excludes:\n     - .git/\n   ```\n\nprose: with colon\n\n```bash\necho hi\n```\n")
+	blocks := parseYAMLBlocks(body)
+	if len(blocks) != 1 {
+		t.Fatalf("expected 1 block, got %d: %v", len(blocks), blocks)
+	}
+	if blocks[0]["sync_dir"] != "~/Sync" {
+		t.Errorf("sync_dir: got %v", blocks[0]["sync_dir"])
+	}
+	if _, leaked := blocks[0]["prose"]; leaked {
+		t.Errorf("prose outside the block leaked into the record: %v", blocks[0])
+	}
+}
+
+func TestParseYAMLBlocksInfoStringIgnored(t *testing.T) {
+	if blocks := parseYAMLBlocks([]byte("```yaml title=x\nfoo: bar\n```\n")); len(blocks) != 0 {
+		t.Errorf("fence with info string should not match, got %v", blocks)
 	}
 }
 

@@ -16,7 +16,10 @@ func init() {
 
 var (
 	frontmatterRe = regexp.MustCompile("(?s)^---\r?\n(.*?)\r?\n---\r?\n")
-	yamlBlockRe   = regexp.MustCompile("(?s)```yaml\r?\n(.*?)\r?\n```")
+	// Fences must be fence-only lines, but may be indented (e.g. blocks
+	// inside list items) — an indented closing fence must still terminate
+	// the block, or the match runs on into unrelated prose.
+	yamlBlockRe = regexp.MustCompile("(?ms)^[ \t]*```yaml[ \t]*\r?$\n(.*?)\r?\n[ \t]*```[ \t]*\r?$")
 	yamlMarker    = []byte("```yaml")
 )
 
@@ -63,7 +66,7 @@ func parseYAMLString(content []byte) Record {
 		key := doc.Content[i].Value
 		var val any
 		doc.Content[i+1].Decode(&val) //nolint:errcheck
-		result[key] = stringifyDates(val)
+		result[key] = normalizeValue(val)
 	}
 	return result
 }

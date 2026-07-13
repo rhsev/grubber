@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -505,20 +506,34 @@ func (g *Grubber) OutputTSV(records []Record, keys []string, w io.Writer) error 
 	return nil
 }
 
-func stringifyDates(v any) any {
+// normalizeValue makes a decoded YAML value safe for JSON output: dates
+// become YYYY-MM-DD strings, non-string map keys are stringified, NaN and
+// ±Inf become nil. Without this, one odd value in one file (an unquoted
+// {{...}} placeholder, a `.nan`) fails the marshal and kills the whole scan.
+func normalizeValue(v any) any {
 	switch val := v.(type) {
 	case time.Time:
 		return val.Format("2006-01-02")
+	case float64:
+		if math.IsNaN(val) || math.IsInf(val, 0) {
+			return nil
+		}
 	case map[string]any:
 		result := make(map[string]any, len(val))
 		for k, vv := range val {
-			result[k] = stringifyDates(vv)
+			result[k] = normalizeValue(vv)
+		}
+		return result
+	case map[any]any:
+		result := make(map[string]any, len(val))
+		for k, vv := range val {
+			result[fmt.Sprint(k)] = normalizeValue(vv)
 		}
 		return result
 	case []any:
 		result := make([]any, len(val))
 		for i, vv := range val {
-			result[i] = stringifyDates(vv)
+			result[i] = normalizeValue(vv)
 		}
 		return result
 	}
