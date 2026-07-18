@@ -128,6 +128,9 @@ grubber extract ~/notes -o data.json
 
 # Use a config set
 grubber extract --set contracts
+
+# Report YAML that extract only handles by degrading it
+grubber doctor ~/notes
 ```
 
 ### Filter operators
@@ -140,6 +143,39 @@ grubber extract --set contracts
 | `!` | not equals | `status!archived` |
 
 Filters are case-insensitive and work on arrays (matches if any element matches).
+
+## Checking your notes (`doctor`)
+
+Extract is deliberately tolerant: YAML that fails strict parsing falls back to a line-by-line scan, odd values (non-string map keys, NaN) are normalized away, duplicate keys resolve last-wins. `doctor` reports every place that tolerance kicked in — and, as corpus hygiene, invisible characters that web clippings drag into notes and that silently break search and pipelines (`grep Geschäfte` won't find `Ge­schäfte` with a soft hyphen inside):
+
+```sh
+grubber doctor ~/notes              # report only
+grubber doctor --set notes          # same set resolution as extract
+grubber doctor ~/notes --fix        # remove invisible characters, in place
+grubber doctor ~/notes --only yaml  # just the hand-work findings
+```
+
+One line per finding (`file:line[:col]`, category, message, tab-separated). Exit code 0 means clean, 1 means findings — scriptable for CI or after bulk edits. The report goes to stdout and is never stored anywhere (grubber keeps no state between runs); redirect it if you want to keep it. That matters most with `--fix`, where the report is the record of what was removed:
+
+```sh
+grubber doctor ~/notes --fix > fix-log.txt
+```
+
+| Category | Meaning |
+|----------|---------|
+| `yaml-error` | block isn't valid YAML; line-by-line fallback was used |
+| `unclosed-fence` | ` ```yaml ` fence without a closing fence; block ignored |
+| `non-string-keys` | mapping with non-string keys (e.g. an unquoted `{{...}}`); degrades on extract |
+| `non-finite` | NaN/Inf value; extracted as null |
+| `duplicate-key` | duplicate key in one mapping; last value wins |
+| `nested-mapping` | value is a nested mapping — more structure than a flat record wants |
+| `invisible-char` | soft hyphen, zero-width, bidi marks, BOM, C0/C1 controls — removed by `--fix` |
+| `suspect-char` | NBSP; may be intentional typography, reported but never fixed |
+| `crlf` | CRLF line endings; normalized to LF by `--fix` |
+
+`--only` filters the report to given categories, comma-separated, with two class shorthands: `yaml` (the six hand-work categories above the line — fix the note) and `chars` (the three hygiene ones — `--fix` handles them). The exit code follows the filter, so `doctor --only yaml` in cron stays green while deliberate NBSPs remain in the corpus. `--only` never changes what `--fix` touches.
+
+`--fix` rewrites only files with findings, atomically (temp file + rename — the file gets a new mtime/inode, so sync tools and backups see it as changed), and is idempotent. Tabs (TaskPaper semantics) and NBSP always survive. `.jsonl` files (e.g. collection indexes named in a set's `from_jsonl`) are scanned but never written — a finding there is a hint for the tool that owns them. Unicode normalization (NFC/NFD) is out of scope. [INVISIBLES.md](INVISIBLES.md) explains what problem each character class causes.
 
 ## Piping to other tools
 

@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-const version = "0.14.1"
+const version = "0.15.0"
 
 type multiFlag []string
 
@@ -33,6 +33,8 @@ func main() {
 	switch command {
 	case "extract":
 		runExtract(rest, "")
+	case "doctor":
+		runDoctor(rest)
 	default:
 		if _, err := os.Stat(command); err == nil {
 			runExtract(rest, command)
@@ -476,6 +478,7 @@ USAGE:
 
 COMMANDS:
   extract      Extract YAML blocks from Markdown files
+  doctor       Report YAML that extract only handles by degrading it
 
 EXAMPLES:
   grubber extract ~/notes -o data.json

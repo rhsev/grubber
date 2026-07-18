@@ -1,6 +1,6 @@
 # grubber – Architecture
 
-grubber is about 700 lines of Go across eight small files:
+grubber is about 800 lines of Go across nine small files:
 
 | File | What it does |
 |------|--------------|
@@ -12,6 +12,7 @@ grubber is about 700 lines of Go across eight small files:
 | `parser_typst.go` | Typst parser: `#metadata((...))` and `#set document(...)` |
 | `filter.go` | Filter expression parsing and matching |
 | `config.go` | Config file loader |
+| `doctor.go` | doctor subcommand: diagnostics collection and report |
 
 ## What happens on each run
 
@@ -60,6 +61,8 @@ JSONL files named on `--from-jsonl` are a second input alongside the scan path. 
 ## A few non-obvious decisions
 
 **YAML Node API.** yaml.v3 errors out on duplicate keys in a mapping. Real notes sometimes have them. The low-level `yaml.Node` API lets grubber walk key-value pairs manually and use last-value-wins, the same as most editors would.
+
+**Doctor sees with extract's eyes.** `doctor` is not a second, stricter parser — it would drift from what extract actually does. Instead the regular parse functions take an optional `*Diagnostics` collector (`ParseOpts.Diag`), nil on the extract path: every finding is recorded at the exact spot where extract falls back, normalizes, or skips. A parser fix automatically updates both commands. The invisible-character scan (and its `--fix`) is the one part that runs on raw bytes before parsing — its fixed character list mirrors basekit's `frame.Sanitize`, minus tab replacement, plus CRLF→LF.
 
 **reorderArgs.** Go's `flag` package stops parsing at the first non-flag argument, so `grubber extract ~/notes --format tsv` would silently ignore `--format`. `reorderArgs` moves positional arguments to the end before parsing, so flag order doesn't matter.
 

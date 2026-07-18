@@ -4,6 +4,9 @@ package main
 type ParseOpts struct {
 	UseMmd          bool
 	FrontmatterOnly bool // meaningful only for formats that have a frontmatter concept
+	// Diag, when non-nil, collects doctor findings during the parse. nil (the
+	// extract path) records nothing; parse behavior is identical either way.
+	Diag *Diagnostics
 }
 
 // FileParser extracts structured metadata from a single text file.
