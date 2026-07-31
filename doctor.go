@@ -1,13 +1,17 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"math"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"unicode/utf8"
+
+	"gopkg.in/yaml.v3"
 )
 
 // Finding is one doctor diagnostic: a place where extract silently degrades
@@ -84,6 +88,75 @@ func (d *Diagnostics) inspectValue(key string, v any) {
 	}
 }
 
+// inspectRaw walks the undecoded node, which is where evidence lives that the
+// decoded value no longer carries — currently the leading zero of a value that
+// YAML resolved as a number.
+func (d *Diagnostics) inspectRaw(key string, node *yaml.Node) {
+	if d == nil || node == nil {
+		return
+	}
+	switch node.Kind {
+	case yaml.ScalarNode:
+		d.inspectLeadingZero(key, node)
+	case yaml.SequenceNode:
+		for _, c := range node.Content {
+			d.inspectRaw(key, c)
+		}
+	case yaml.MappingNode:
+		for i := 1; i < len(node.Content); i += 2 {
+			d.inspectRaw(key, node.Content[i])
+		}
+	}
+}
+
+// inspectLeadingZero flags unquoted values that were meant as text — phone
+// numbers, customer and account numbers — but resolve as numbers, dropping the
+// leading zero: `01711234890` extracts as 1711234890. When every digit is
+// octal-valid it is worse, because YAML 1.1 octal is still alive in go-yaml v3
+// and `0755` resolves to 493, a different number entirely. The fix is to quote
+// the value, which is a content decision, so this is hand work and --fix never
+// touches it.
+func (d *Diagnostics) inspectLeadingZero(key string, node *yaml.Node) {
+	// Quoted scalars are already strings; only plain ones get resolved.
+	if node.Style&(yaml.SingleQuotedStyle|yaml.DoubleQuotedStyle|yaml.LiteralStyle|yaml.FoldedStyle) != 0 {
+		return
+	}
+	s := strings.TrimPrefix(strings.TrimPrefix(node.Value, "+"), "-")
+	// "0" alone is fine, "0.5" keeps its zero, and 0x/0o/0b are deliberate.
+	if len(s) < 2 || s[0] != '0' || s[1] < '0' || s[1] > '9' {
+		return
+	}
+	var v any
+	if err := node.Decode(&v); err != nil {
+		return
+	}
+	switch v.(type) {
+	case int, int64, uint64, float64:
+	default:
+		return // resolved as a string after all, nothing lost
+	}
+	// Report the value as extract will actually emit it, not as Go prints it.
+	out, err := json.Marshal(normalizeValue(v))
+	if err != nil {
+		return
+	}
+	// Losing the zero is one thing; octal makes it a different number, which
+	// is worth saying out loud.
+	digits := strings.TrimLeft(s, "0")
+	if digits == "" {
+		digits = "0"
+	}
+	sign := ""
+	if strings.HasPrefix(node.Value, "-") {
+		sign = "-"
+	}
+	if string(out) == sign+digits {
+		d.add("leading-zero-number", "%s: %s extracts as %s, leading zero lost — quote it to keep it text", key, node.Value, out)
+	} else {
+		d.add("leading-zero-number", "%s: %s extracts as %s, a different number (read as octal) — quote it to keep it text", key, node.Value, out)
+	}
+}
+
 // --- invisible characters -------------------------------------------------
 
 // charNames covers the characters doctor knows by name; controls fall back
@@ -118,9 +191,9 @@ func charName(r rune) string {
 	return "CONTROL CHARACTER"
 }
 
-// removableRune reports whether --fix strips r. The list is fixed (see
-// AUFTRAG / basekit frame.Sanitize): tabs and NBSP are deliberately NOT here
-// — tabs carry TaskPaper semantics, NBSP can be intentional typography.
+// removableRune reports whether --fix strips r. The list is deliberately
+// fixed, and tabs and NBSP are deliberately NOT on it — tabs carry TaskPaper
+// semantics, NBSP can be intentional typography.
 // \r is handled separately (CRLF→LF normalization; lone \r is removed).
 func removableRune(r rune) bool {
 	switch {
@@ -230,7 +303,7 @@ func charFindings(path string, stats map[rune]*charStat, crlf *charStat) []Findi
 // "yaml" is the hand-work class (fix the note), "chars" the hygiene class
 // (--fix handles it).
 var doctorClasses = map[string][]string{
-	"yaml":  {"yaml-error", "unclosed-fence", "non-string-keys", "non-finite", "duplicate-key", "nested-mapping"},
+	"yaml":  {"yaml-error", "unclosed-fence", "non-string-keys", "non-finite", "duplicate-key", "nested-mapping", "leading-zero-number"},
 	"chars": {"invisible-char", "suspect-char", "crlf"},
 }
 
@@ -466,6 +539,9 @@ that break search and pipelines. Categories:
   non-finite       NaN/Inf value, extracted as null
   duplicate-key    duplicate key in one mapping, last value wins
   nested-mapping   value is a nested mapping in a flat record
+  leading-zero-number
+                   unquoted number lost its leading zero (01711234890 →
+                   1711234890); octal-valid digits become another number
   invisible-char   soft hyphen, zero-width, bidi, BOM, C0/C1 controls
   suspect-char     NBSP — reported only, never fixed (may be intentional)
   crlf             CRLF line endings, normalized to LF by --fix

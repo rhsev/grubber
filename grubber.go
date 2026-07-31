@@ -112,30 +112,43 @@ func (g *Grubber) workerCount() int {
 	return runtime.NumCPU()
 }
 
-func (g *Grubber) processFiles(files []string) <-chan []Record {
+// indexedResult carries the file's position in the scan list along with its
+// records. Workers finish in whatever order the scheduler and the disk decide,
+// so without the index the output order would vary between runs — see
+// collectRecords and StreamJSONL, which both put it back.
+type indexedResult struct {
+	index   int
+	records []Record
+}
+
+func (g *Grubber) processFiles(files []string) <-chan indexedResult {
 	wc := g.workerCount()
-	fileCh := make(chan string, wc)
-	resultCh := make(chan []Record)
+	type job struct {
+		index int
+		path  string
+	}
+	fileCh := make(chan job, wc)
+	resultCh := make(chan indexedResult)
 
 	var wg sync.WaitGroup
 	for range wc {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for path := range fileCh {
-				records, err := g.processFile(path)
+			for j := range fileCh {
+				records, err := g.processFile(j.path)
 				if err != nil {
-					fmt.Fprintf(os.Stderr, "Error processing %s: %v\n", path, err)
-					resultCh <- nil
+					fmt.Fprintf(os.Stderr, "Error processing %s: %v\n", j.path, err)
+					resultCh <- indexedResult{index: j.index}
 					continue
 				}
-				resultCh <- records
+				resultCh <- indexedResult{index: j.index, records: records}
 			}
 		}()
 	}
 	go func() {
-		for _, f := range files {
-			fileCh <- f
+		for i, f := range files {
+			fileCh <- job{index: i, path: f}
 		}
 		close(fileCh)
 	}()
@@ -157,7 +170,11 @@ func (g *Grubber) collectRecords(files []string) (scanned, jsonl []Record, err e
 				return
 			}
 		}
-		for fileRecords := range g.processFiles(files) {
+		ordered := make([][]Record, len(files))
+		for res := range g.processFiles(files) {
+			ordered[res.index] = res.records
+		}
+		for _, fileRecords := range ordered {
 			scanned = append(scanned, fileRecords...)
 		}
 	}
@@ -291,14 +308,28 @@ func (g *Grubber) StreamJSONL(w io.Writer) error {
 		// On encode error keep draining the channel so the worker
 		// goroutines can finish instead of blocking on send forever.
 		var encErr error
-		for fileRecords := range g.processFiles(files) {
-			if encErr != nil {
-				continue
-			}
-			for _, r := range fileRecords {
-				if err := enc.Encode(r); err != nil {
-					encErr = err
+		// Results arrive out of order; hold them back until the next expected
+		// index shows up, so the stream stays in scan order without buffering
+		// the whole run. The window is only as wide as the workers drift apart.
+		pending := make(map[int][]Record)
+		next := 0
+		for res := range g.processFiles(files) {
+			pending[res.index] = res.records
+			for {
+				fileRecords, ok := pending[next]
+				if !ok {
 					break
+				}
+				delete(pending, next)
+				next++
+				if encErr != nil {
+					continue
+				}
+				for _, r := range fileRecords {
+					if err := enc.Encode(r); err != nil {
+						encErr = err
+						break
+					}
 				}
 			}
 		}

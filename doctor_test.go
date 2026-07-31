@@ -240,3 +240,50 @@ func TestDoctorNilDiagnosticsSafe(t *testing.T) {
 	d.add("cat", "msg")
 	d.inspectValue("k", map[string]any{"a": 1})
 }
+
+func TestDoctorLeadingZeroNumber(t *testing.T) {
+	findings := extractWithDiag(t, "---\nnumber: 01711234890\n---\n")
+	f := findCategory(findings, "leading-zero-number")
+	if f == nil {
+		t.Fatalf("expected leading-zero-number, got %v", findings)
+	}
+	if !strings.Contains(f.Message, "1711234890") {
+		t.Errorf("message should show what extract emits: %q", f.Message)
+	}
+}
+
+// The dangerous case: every digit is octal-valid, so the value does not just
+// lose its zero, it becomes a different number.
+func TestDoctorLeadingZeroOctal(t *testing.T) {
+	f := findCategory(extractWithDiag(t, "---\ncode: 0755\n---\n"), "leading-zero-number")
+	if f == nil {
+		t.Fatal("expected leading-zero-number for 0755")
+	}
+	if !strings.Contains(f.Message, "493") || !strings.Contains(f.Message, "octal") {
+		t.Errorf("octal case should say so and show 493: %q", f.Message)
+	}
+}
+
+func TestDoctorLeadingZeroQuotedIsClean(t *testing.T) {
+	for _, doc := range []string{
+		"---\nnumber: \"01711234890\"\n---\n", // double quoted
+		"---\nnumber: '0755'\n---\n",          // single quoted
+		"---\nnumber: 0.5\n---\n",             // the zero survives
+		"---\nnumber: 0\n---\n",               // plain zero
+		"---\nnumber: 0x1f\n---\n",            // deliberate hex
+		"---\nnumber: 0o17\n---\n",            // deliberate octal
+		"---\nnumber: 0b101\n---\n",           // deliberate binary
+		"---\nnumber: 0abc\n---\n",            // stays a string
+	} {
+		if f := findCategory(extractWithDiag(t, doc), "leading-zero-number"); f != nil {
+			t.Errorf("%q should not be flagged: %s", doc, f.Message)
+		}
+	}
+}
+
+func TestDoctorLeadingZeroInsideArray(t *testing.T) {
+	findings := extractWithDiag(t, "---\ncodes: [0123, 456]\n---\n")
+	if f := findCategory(findings, "leading-zero-number"); f == nil {
+		t.Errorf("array elements should be inspected too, got %v", findings)
+	}
+}

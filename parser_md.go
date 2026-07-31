@@ -87,6 +87,7 @@ func parseYAMLString(content []byte, d *Diagnostics) Record {
 			}
 			seen[key] = true
 			d.inspectValue(key, val)
+			d.inspectRaw(key, doc.Content[i+1])
 		}
 		result[key] = normalizeValue(val)
 	}

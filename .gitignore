@@ -2,14 +2,3 @@
 grubber
 grubber-macos-arm64
 *.dwarf
-
-# macOS
-.DS_Store
-
-# Output files
-*.tsv
-*.json
-
-# Tools
-dataview-bridge.rb
-

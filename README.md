@@ -169,11 +169,12 @@ grubber doctor ~/notes --fix > fix-log.txt
 | `non-finite` | NaN/Inf value; extracted as null |
 | `duplicate-key` | duplicate key in one mapping; last value wins |
 | `nested-mapping` | value is a nested mapping — more structure than a flat record wants |
+| `leading-zero-number` | unquoted value resolved as a number and lost its leading zero (`01711234890` → `1711234890`); when all digits are octal-valid it becomes a different number entirely (`0755` → `493`) |
 | `invisible-char` | soft hyphen, zero-width, bidi marks, BOM, C0/C1 controls — removed by `--fix` |
 | `suspect-char` | NBSP; may be intentional typography, reported but never fixed |
 | `crlf` | CRLF line endings; normalized to LF by `--fix` |
 
-`--only` filters the report to given categories, comma-separated, with two class shorthands: `yaml` (the six hand-work categories above the line — fix the note) and `chars` (the three hygiene ones — `--fix` handles them). The exit code follows the filter, so `doctor --only yaml` in cron stays green while deliberate NBSPs remain in the corpus. `--only` never changes what `--fix` touches.
+`--only` filters the report to given categories, comma-separated, with two class shorthands: `yaml` (the seven hand-work categories above the line — fix the note) and `chars` (the three hygiene ones — `--fix` handles them). The exit code follows the filter, so `doctor --only yaml` in cron stays green while deliberate NBSPs remain in the corpus. `--only` never changes what `--fix` touches.
 
 `--fix` rewrites only files with findings, atomically (temp file + rename — the file gets a new mtime/inode, so sync tools and backups see it as changed), and is idempotent. Tabs (TaskPaper semantics) and NBSP always survive. `.jsonl` files (e.g. collection indexes named in a set's `from_jsonl`) are scanned but never written — a finding there is a hint for the tool that owns them. Unicode normalization (NFC/NFD) is out of scope. [INVISIBLES.md](INVISIBLES.md) explains what problem each character class causes.
 
@@ -351,8 +352,16 @@ grubber follows YAML 1.2. Values that look like numbers are parsed as numbers. I
 
 ```yaml
 number: "01711234567"   # string
-number: 01711234567     # parsed as a number
+number: 01711234567     # parsed as a number — and not the one you expect
 ```
+
+The unquoted form loses its leading zero, and YAML 1.1 octal is still decoded
+for compatibility. So when every digit is below 8, as above, the value is read
+as octal and comes out as `254097783` — a different number entirely. With an 8
+or 9 somewhere it merely loses the zero (`01711234890` → `1711234890`).
+
+`grubber doctor` reports both as `leading-zero-number` and says which one
+happened. Quoting is a content decision, so `--fix` leaves them alone.
 
 ## Design
 
@@ -360,7 +369,9 @@ number: 01711234567     # parsed as a number
 - Valid Markdown. The format doesn't break any renderer. grubber adds a queryable layer on top.
 - Dates are output as strings (`YYYY-MM-DD`) for safe JSON serialization.
 - Schema-agnostic. grubber extracts whatever YAML it finds. Field names and record types are up to you.
-- JSON keys are sorted alphabetically for deterministic output.
+- JSON keys are sorted alphabetically for deterministic output. Records keep
+  scan order too, whatever the workers do — the same corpus gives byte-identical
+  output on every run, so it diffs and syncs cleanly.
 
 ## See also
 
