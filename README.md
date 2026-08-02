@@ -326,7 +326,7 @@ grubber reads two things from a Markdown file: YAML frontmatter and fenced YAML 
 - Frontmatter holds note-level metadata (title, keywords, created date). These fields are merged into every record from that file.
 - YAML code blocks hold structured data records. Only ` ```yaml ` blocks are read — other fenced blocks are ignored.
 - Multiple YAML blocks in one note produce multiple records. Each inherits the frontmatter fields.
-- **Blocks keep document order.** The records from one note come out in the order the blocks appear in it, in every output format. Tools that treat the Nth block as the Nth item can rely on that.
+- **Blocks keep document order.** The records from one note come out in the order the blocks appear in it, in every output format. Note that this is relative order, not position: a block that yields no record (empty, comments only, or not a mapping) is skipped, so the Nth record is not necessarily the Nth block.
 - On field name collision, the YAML block wins over frontmatter.
 - Notes without YAML blocks are extracted as frontmatter-only records (unless `--blocks-only`).
 

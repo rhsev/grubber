@@ -276,9 +276,10 @@ func TestStreamJSONLOrderIsDeterministic(t *testing.T) {
 	}
 }
 
-// Blocks within one note keep document order. Downstream tools rely on this:
-// fileregister's album and mark-twin read the Nth block as the Nth item, so a
-// reordering here would silently renumber their data.
+// Blocks within one note keep document order. Downstream tools rely on the
+// relative order — fileregister's album and mark-twin present entries in the
+// order they were written — so reordering here would silently rearrange their
+// data. (Position is not promised: a block yielding no record is skipped.)
 func TestBlockOrderFollowsDocument(t *testing.T) {
 	dir := t.TempDir()
 	var body strings.Builder
