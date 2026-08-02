@@ -338,3 +338,84 @@ func TestBlockOrderFollowsDocument(t *testing.T) {
 		t.Errorf("StreamJSONL reordered blocks: got %v, want %v", streamed, want)
 	}
 }
+
+// The two output paths order notes differently, on purpose: json and tsv sort
+// by filename so a note keeps its position when it moves between directories,
+// while jsonl streams records as they are scanned and therefore follows the
+// walk. Same three notes, two expected orders — if either side ever changes,
+// this is the test that says so.
+func TestNoteOrderDiffersPerFormat(t *testing.T) {
+	dir := t.TempDir()
+	// Directory name and filename deliberately disagree on the sort order.
+	for _, f := range []struct{ sub, name, title string }{
+		{"a", "zzz.md", "zzz"},
+		{"b", "mmm.md", "mmm"},
+		{"c", "aaa.md", "aaa"},
+	} {
+		if err := os.MkdirAll(filepath.Join(dir, f.sub), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		body := "---\ntitle: " + f.title + "\n---\n"
+		if err := os.WriteFile(filepath.Join(dir, f.sub, f.name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	newG := func() *Grubber {
+		g, err := NewGrubber(dir, false, false, false, false, nil, 0, nil, nil, nil, nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return g
+	}
+
+	// json: by filename, ignoring the directory it sits in.
+	records, keys, err := newG().Extract(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var byName []string
+	for _, r := range records {
+		title, _ := r["title"].(string)
+		byName = append(byName, title)
+	}
+	if want := []string{"aaa", "mmm", "zzz"}; !slices.Equal(byName, want) {
+		t.Errorf("json order: got %v, want %v (sorted by filename)", byName, want)
+	}
+
+	// tsv: same records, same order — the header plus one row per note.
+	var tsv bytes.Buffer
+	if err := newG().OutputTSV(records, keys, &tsv); err != nil {
+		t.Fatal(err)
+	}
+	titleCol := slices.Index(keys, "title")
+	if titleCol < 0 {
+		t.Fatal("no title column")
+	}
+	var tsvOrder []string
+	for _, line := range strings.Split(strings.TrimSpace(tsv.String()), "\n")[1:] {
+		tsvOrder = append(tsvOrder, strings.Split(line, "\t")[titleCol])
+	}
+	if !slices.Equal(tsvOrder, byName) {
+		t.Errorf("tsv order %v should match json order %v", tsvOrder, byName)
+	}
+
+	// jsonl: scan order, i.e. the directory walk a/ b/ c/.
+	var buf bytes.Buffer
+	if err := newG().StreamJSONL(&buf); err != nil {
+		t.Fatal(err)
+	}
+	var scanned []string
+	for _, line := range strings.Split(strings.TrimSpace(buf.String()), "\n") {
+		var rec struct {
+			Title string `json:"title"`
+		}
+		if err := json.Unmarshal([]byte(line), &rec); err != nil {
+			t.Fatal(err)
+		}
+		scanned = append(scanned, rec.Title)
+	}
+	if want := []string{"zzz", "mmm", "aaa"}; !slices.Equal(scanned, want) {
+		t.Errorf("jsonl order: got %v, want %v (scan order)", scanned, want)
+	}
+}
