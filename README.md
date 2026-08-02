@@ -326,6 +326,7 @@ grubber reads two things from a Markdown file: YAML frontmatter and fenced YAML 
 - Frontmatter holds note-level metadata (title, keywords, created date). These fields are merged into every record from that file.
 - YAML code blocks hold structured data records. Only ` ```yaml ` blocks are read — other fenced blocks are ignored.
 - Multiple YAML blocks in one note produce multiple records. Each inherits the frontmatter fields.
+- **Blocks keep document order.** The records from one note come out in the order the blocks appear in it, in every output format. Tools that treat the Nth block as the Nth item can rely on that.
 - On field name collision, the YAML block wins over frontmatter.
 - Notes without YAML blocks are extracted as frontmatter-only records (unless `--blocks-only`).
 
@@ -369,9 +370,11 @@ happened. Quoting is a content decision, so `--fix` leaves them alone.
 - Valid Markdown. The format doesn't break any renderer. grubber adds a queryable layer on top.
 - Dates are output as strings (`YYYY-MM-DD`) for safe JSON serialization.
 - Schema-agnostic. grubber extracts whatever YAML it finds. Field names and record types are up to you.
-- JSON keys are sorted alphabetically for deterministic output. Records keep
-  scan order too, whatever the workers do — the same corpus gives byte-identical
-  output on every run, so it diffs and syncs cleanly.
+- JSON keys are sorted alphabetically for deterministic output. Record order is
+  fixed too, whatever the workers do, so the same corpus gives byte-identical
+  output on every run and diffs and syncs cleanly. Across notes, `json` and
+  `tsv` sort by filename (not path), `jsonl` follows scan order; within one
+  note, blocks always keep document order.
 
 ## See also
 

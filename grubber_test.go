@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -272,5 +273,68 @@ func TestStreamJSONLOrderIsDeterministic(t *testing.T) {
 		if got := run(); got != first {
 			t.Fatalf("run %d produced a different order", i+2)
 		}
+	}
+}
+
+// Blocks within one note keep document order. Downstream tools rely on this:
+// fileregister's album and mark-twin read the Nth block as the Nth item, so a
+// reordering here would silently renumber their data.
+func TestBlockOrderFollowsDocument(t *testing.T) {
+	dir := t.TempDir()
+	var body strings.Builder
+	body.WriteString("---\ntitle: note\n---\n\nProse before the first block.\n")
+	for i := range 12 {
+		fmt.Fprintf(&body, "\n```yaml\nn: %d\n```\n\nProse between blocks.\n", i)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "note.md"), []byte(body.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	want := make([]int, 12)
+	for i := range want {
+		want[i] = i
+	}
+
+	newG := func() *Grubber {
+		g, err := NewGrubber(dir, false, false, false, true, nil, 0, nil, nil, nil, nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return g
+	}
+
+	records, _, err := newG().Extract(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := make([]int, 0, len(records))
+	for _, r := range records {
+		if n, ok := r["n"].(int); ok {
+			got = append(got, n)
+		}
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("Extract reordered blocks: got %v, want %v", got, want)
+	}
+
+	// The streaming path has no final sort at all, so it needs its own check.
+	var buf bytes.Buffer
+	if err := newG().StreamJSONL(&buf); err != nil {
+		t.Fatal(err)
+	}
+	var streamed []int
+	for _, line := range strings.Split(strings.TrimSpace(buf.String()), "\n") {
+		var rec struct {
+			N *int `json:"n"`
+		}
+		if err := json.Unmarshal([]byte(line), &rec); err != nil {
+			t.Fatal(err)
+		}
+		if rec.N != nil {
+			streamed = append(streamed, *rec.N)
+		}
+	}
+	if !slices.Equal(streamed, want) {
+		t.Errorf("StreamJSONL reordered blocks: got %v, want %v", streamed, want)
 	}
 }
