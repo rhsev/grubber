@@ -10,6 +10,7 @@ grubber is about 800 lines of Go across nine small files:
 | `parser.go` | FileParser interface and format registry |
 | `parser_md.go` | Markdown parser: YAML frontmatter, YAML blocks, MultiMarkdown headers |
 | `parser_typst.go` | Typst parser: `#metadata((...))` and `#set document(...)` |
+| `parser_vcard.go` | vCard 3.0 parser: one flattened record per card |
 | `filter.go` | Filter expression parsing and matching |
 | `config.go` | Config file loader |
 | `doctor.go` | doctor subcommand: diagnostics collection and report |
@@ -71,6 +72,8 @@ JSONL files named on `--from-jsonl` are a second input alongside the scan path. 
 **Config cascade.** Priority from low to high: built-in defaults → config file → named set → environment variables → CLI flags. `fs.Visit` detects which flags were explicitly passed (vs. at their zero value) so set values aren't overwritten by unset flags.
 
 **Typst block extraction.** `#metadata((content))` uses nested parens — the outer call parens and an inner tuple. `typstFindBlock` scans byte-by-byte tracking paren depth, so nested structures like `datetime(year: 2024, month: 6, day: 1)` are handled without a full parser. The same function handles both `#metadata((` and `#set document(` via a prefix argument.
+
+**vCard flattening is lossy by design.** Cards are read for querying, not round-tripping: TYPE parameters, photos, and `X-` properties are dropped, `EMAIL`/`TEL`/`URL` are always arrays for consistent typing across a corpus. `UID` maps to `uid`, not `id` — `id` names a file in the fileregister convention, while a UID names one card among possibly many per file. Like Typst, every card is a block record, so `blocks_only: true` includes vCard files.
 
 **Typst returns blocks, not frontmatter.** The Typst parser returns its metadata as a block record rather than frontmatter. This ensures files are included even when `blocks_only: true` — since Typst has no YAML-block concept, the `#metadata()` block IS the record.
 

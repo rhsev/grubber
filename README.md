@@ -91,7 +91,7 @@ grubber is not a multi-dimensional database. But it covers many use cases: filte
 | Query language | Proprietary DQL | Standard tools (jq, nushell, miller) |
 | Output | In-note rendering | JSON/TSV for any pipeline |
 | Live updates | Yes | No (run on demand) |
-| Formats | Markdown only | Markdown, Typst, extensible |
+| Formats | Markdown only | Markdown, Typst, vCard, extensible |
 | Extensible | Plugin API | Shell scripts, any language |
 
 grubber trades live updates for tool independence. No proprietary query language to learn. If you know jq or nushell, you already know how to query grubber output.
@@ -102,7 +102,7 @@ grubber scans files for metadata and structured data, merges everything into fla
 
 The primary format is Markdown: grubber reads YAML frontmatter and fenced YAML code blocks, merges them into flat records. Multiple YAML blocks per file produce multiple records, each inheriting the frontmatter fields.
 
-Beyond Markdown, grubber has a file-format registry that can handle other text files with metadata. Typst is currently implemented: grubber reads `#metadata((...))` and `#set document(...)` blocks. Which file types are scanned is configurable via `--extensions`. Other formats with native metadata conventions — such as Org-mode, AsciiDoc, or plain YAML — are natural candidates for future parsers.
+Beyond Markdown, grubber has a file-format registry that can handle other text files with metadata. Typst and vCard 3.0 are currently implemented: grubber reads `#metadata((...))` and `#set document(...)` blocks from `.typ` files, and contact cards from `.vcf` files. Which file types are scanned is configurable via `--extensions`. Other formats with native metadata conventions — such as Org-mode, AsciiDoc, or plain YAML — are natural candidates for future parsers.
 
 ## Usage
 
@@ -338,6 +338,17 @@ grubber reads metadata from two Typst constructs:
 - `#set document(title: "...", author: "...", date: datetime(...))` — standard Typst document metadata
 
 Only the first matching block per file is read. `datetime(year:, month:, day:)` values are converted to `YYYY-MM-DD` strings. Arrays are supported: `("a", "b", "c")` becomes a JSON array.
+
+### vCard
+
+grubber reads vCard 3.0 files (`.vcf`) as exported by Contacts.app. Each card becomes one record; a file may hold a single contact or a whole export.
+
+The mapping is deliberately lossy — cards are flattened for querying, not round-tripped:
+
+- `FN` → `name`, `ORG` → `org` (organization only), `TITLE`, `NICKNAME`, `BDAY`, `NOTE` → same-named lowercase fields
+- `EMAIL`, `TEL`, `URL` → always arrays, even with a single value, so records type consistently across a corpus
+- `UID` → `uid` — the card's identity. In a hand-maintained file, a short slug makes it the join key to a Markdown note carrying the same `uid` in its YAML block
+- `ADR` → one joined string; TYPE parameters (CELL/HOME/WORK), photos, and `X-` properties are dropped
 
 ### General
 
