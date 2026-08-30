@@ -121,3 +121,32 @@ func TestVcardGarbageIgnored(t *testing.T) {
 		t.Errorf("got %d records, want 0 (empty card dropped)", len(blocks))
 	}
 }
+
+func TestVcardEscapedSeparators(t *testing.T) {
+	// RFC 2426: a backslash-escaped separator is part of the field, not a
+	// structural split point.
+	src := "BEGIN:VCARD\n" +
+		"VERSION:3.0\n" +
+		"FN:Escape Case\n" +
+		"ORG:ACME\\; Sub;Unit\n" +
+		"CATEGORIES:Friends\\,Berlin,Work\n" +
+		"ADR:;;123 Main\\; Suite 4;City;;12345;US\n" +
+		"END:VCARD\n"
+	_, blocks, err := (&vcardParser{}).Extract("e.vcf", []byte(src), ParseOpts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(blocks) != 1 {
+		t.Fatalf("got %d records, want 1", len(blocks))
+	}
+	r := blocks[0]
+	if r["org"] != "ACME; Sub" {
+		t.Errorf("org = %q, want %q", r["org"], "ACME; Sub")
+	}
+	if want := []any{"Friends,Berlin", "Work"}; !reflect.DeepEqual(r["categories"], want) {
+		t.Errorf("categories = %v, want %v", r["categories"], want)
+	}
+	if want := "123 Main; Suite 4, City, 12345, US"; r["adr"] != want {
+		t.Errorf("adr = %q, want %q", r["adr"], want)
+	}
+}

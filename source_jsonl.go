@@ -74,7 +74,9 @@ func readJSONLSource(srcPath string) ([]Record, error) {
 			continue
 		}
 		r := Record(obj)
-		if _, hasFile := r["_note_file"]; !hasFile {
+		// A JSON null decodes to a present key with a nil value — treat it
+		// as absent, or the record would escape without a real _note_file.
+		if v, hasFile := r["_note_file"]; !hasFile || v == nil {
 			r["_note_file"] = srcPath
 			r["_mtime"] = mtime
 		}

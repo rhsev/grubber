@@ -60,7 +60,7 @@ func (p *vcardParser) Extract(path string, data []byte, opts ParseOpts) (Record,
 			rec["uid"] = unescapeVcard(value)
 		case "ORG":
 			// Structured: org;unit;... — keep the organization only.
-			rec["org"] = unescapeVcard(strings.SplitN(value, ";", 2)[0])
+			rec["org"] = unescapeVcard(splitVcardValue(value, ';')[0])
 		case "TITLE":
 			rec["title"] = unescapeVcard(value)
 		case "NICKNAME":
@@ -74,9 +74,8 @@ func (p *vcardParser) Extract(path string, data []byte, opts ParseOpts) (Record,
 			arr, _ := rec[key].([]any)
 			rec[key] = append(arr, unescapeVcard(value))
 		case "CATEGORIES":
-			// Commas inside a category are escaped, so a raw split is safe.
 			var cats []any
-			for _, c := range strings.Split(value, ",") {
+			for _, c := range splitVcardValue(value, ',') {
 				if c = unescapeVcard(c); c != "" {
 					cats = append(cats, c)
 				}
@@ -87,7 +86,7 @@ func (p *vcardParser) Extract(path string, data []byte, opts ParseOpts) (Record,
 		case "ADR":
 			// Structured: pobox;ext;street;city;region;zip;country.
 			var parts []string
-			for _, c := range strings.Split(value, ";") {
+			for _, c := range splitVcardValue(value, ';') {
 				if c = unescapeVcard(c); c != "" {
 					parts = append(parts, c)
 				}
@@ -143,6 +142,26 @@ func splitVcardLine(line string) (name, value string, ok bool) {
 		namePart = namePart[:semi]
 	}
 	return strings.ToUpper(strings.TrimSpace(namePart)), line[colon+1:], true
+}
+
+// splitVcardValue splits a structured value on its separator, honoring
+// RFC 2426 escapes: a backslash-escaped separator stays inside the field.
+// Segments are still escaped — unescapeVcard runs per segment afterwards.
+func splitVcardValue(s string, sep byte) []string {
+	var parts []string
+	start, escaped := 0, false
+	for i := 0; i < len(s); i++ {
+		switch {
+		case escaped:
+			escaped = false
+		case s[i] == '\\':
+			escaped = true
+		case s[i] == sep:
+			parts = append(parts, s[start:i])
+			start = i + 1
+		}
+	}
+	return append(parts, s[start:])
 }
 
 // unescapeVcard resolves the RFC 2426 text escapes: \\ \, \; \n \N.

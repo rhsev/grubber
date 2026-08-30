@@ -454,7 +454,17 @@ func runDoctor(args []string) {
 		}
 	}
 
-	dir := resolveNotesDir(fs.Arg(0), cfgStr(setCfg, "path"), os.Getenv("GRUBBER_NOTES"), false, os.Getwd)
+	// Resolved before the notes dir so a source-only set (from_jsonl, no
+	// path) doesn't fall back to a cwd scan — which under --fix would
+	// rewrite unrelated files. Mirrors execute.
+	var fromJSONL []string
+	for _, p := range cfgStrSlice(setCfg, "from_jsonl") {
+		if expanded, err := expandPath(p); err == nil {
+			fromJSONL = append(fromJSONL, expanded)
+		}
+	}
+
+	dir := resolveNotesDir(fs.Arg(0), cfgStr(setCfg, "path"), os.Getenv("GRUBBER_NOTES"), len(fromJSONL) > 0, os.Getwd)
 
 	extensions := cfg.DefaultExtensions()
 	if exts := cfgStrSlice(setCfg, "extensions"); exts != nil {
@@ -467,26 +477,25 @@ func runDoctor(args []string) {
 		extensions = splitTrim(extensionsStr, ",")
 	}
 
-	g, err := NewGrubber(dir, false, false, false, false, nil, 0, nil, nil, extensions, nil, nil)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
-	files, err := g.textFiles()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+	var files []string
+	if dir != "" {
+		g, err := NewGrubber(dir, false, false, false, false, nil, 0, nil, nil, extensions, nil, nil)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		files, err = g.textFiles()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
 	}
 
 	// JSONL sources from the set are scanned (report-only, doctorScan never
 	// fixes .jsonl) — a collection index with invisible characters is worth
 	// knowing about even if register owns the file.
-	for _, p := range cfgStrSlice(setCfg, "from_jsonl") {
-		expanded, err := expandPath(p)
-		if err != nil {
-			continue
-		}
-		srcPaths, err := expandJSONLSources([]string{expanded})
+	for _, p := range fromJSONL {
+		srcPaths, err := expandJSONLSources([]string{p})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			continue

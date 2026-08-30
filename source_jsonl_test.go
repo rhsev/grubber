@@ -76,6 +76,7 @@ func TestJSONLPreserveElseInject(t *testing.T) {
 	p := writeTempJSONL(t, dir, "test.jsonl", []string{
 		`{"name":"alice","_note_file":"/original/alice.md","_mtime":"2020-01-01T00:00:00Z"}`,
 		`{"name":"bob"}`,
+		`{"name":"carol","_note_file":null}`,
 	})
 	g, err := NewGrubber("", false, false, false, true, nil, 0, nil, nil, nil, []string{p}, nil)
 	if err != nil {
@@ -85,19 +86,22 @@ func TestJSONLPreserveElseInject(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(records) != 2 {
-		t.Fatalf("expected 2 records, got %d", len(records))
+	if len(records) != 3 {
+		t.Fatalf("expected 3 records, got %d", len(records))
 	}
-	var alice, bob Record
+	var alice, bob, carol Record
 	for _, r := range records {
-		if r["name"] == "alice" {
+		switch r["name"] {
+		case "alice":
 			alice = r
-		} else if r["name"] == "bob" {
+		case "bob":
 			bob = r
+		case "carol":
+			carol = r
 		}
 	}
-	if alice == nil || bob == nil {
-		t.Fatal("expected both alice and bob records")
+	if alice == nil || bob == nil || carol == nil {
+		t.Fatal("expected alice, bob and carol records")
 	}
 	if alice["_note_file"] != "/original/alice.md" {
 		t.Errorf("alice _note_file should be preserved, got %v", alice["_note_file"])
@@ -110,6 +114,9 @@ func TestJSONLPreserveElseInject(t *testing.T) {
 	}
 	if bob["_mtime"] == "" {
 		t.Error("bob _mtime should be injected")
+	}
+	if carol["_note_file"] != p {
+		t.Errorf("carol _note_file: explicit null should be replaced with %q, got %v", p, carol["_note_file"])
 	}
 }
 
