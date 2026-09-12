@@ -1,7 +1,7 @@
 package main
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"io"
 	"math"
@@ -285,7 +285,7 @@ func (g *Grubber) Extract(files []string) (records []Record, keys []string, err 
 // without buffering all records in memory first. With --merge-on, merging
 // needs the full record set, so that path buffers like Extract does.
 func (g *Grubber) StreamJSONL(w io.Writer) error {
-	enc := json.NewEncoder(w)
+	enc := newRecordEncoder(w)
 
 	if len(g.mergeOn) > 0 || g.explode != "" {
 		records, err := g.mergedRecords(nil)
@@ -505,9 +505,11 @@ func (g *Grubber) normalizeArrays(r Record) {
 }
 
 func (g *Grubber) OutputJSON(records []Record, w io.Writer) error {
-	enc := json.NewEncoder(w)
-	enc.SetIndent("", "  ")
-	return enc.Encode(records)
+	if err := jsonv2.MarshalWrite(w, records, marshalIndentOptions); err != nil {
+		return err
+	}
+	_, err := io.WriteString(w, "\n")
+	return err
 }
 
 func (g *Grubber) OutputTSV(records []Record, keys []string, w io.Writer) error {

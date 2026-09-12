@@ -2,7 +2,7 @@ package main
 
 import (
 	"bufio"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -64,7 +64,7 @@ func readJSONLSource(srcPath string) ([]Record, error) {
 			continue
 		}
 		var raw any
-		if err := json.Unmarshal([]byte(line), &raw); err != nil {
+		if err := jsonv2.Unmarshal([]byte(line), &raw, unmarshalOptions); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: %s:%d: invalid JSON, skipping\n", srcPath, lineno)
 			continue
 		}

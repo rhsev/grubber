@@ -11,6 +11,7 @@ grubber is about 800 lines of Go across nine small files:
 | `parser_md.go` | Markdown parser: YAML frontmatter, YAML blocks, MultiMarkdown headers |
 | `parser_typst.go` | Typst parser: `#metadata((...))` and `#set document(...)` |
 | `parser_vcard.go` | vCard 3.0 parser: one flattened record per card |
+| `json.go` | Pinned JSON semantics: the `encoding/json/v2` option set and the JSONL record encoder |
 | `filter.go` | Filter expression parsing and matching |
 | `config.go` | Config file loader |
 | `doctor.go` | doctor subcommand: diagnostics collection and report |
@@ -72,6 +73,16 @@ JSONL files named on `--from-jsonl` are a second input alongside the scan path. 
 **Config cascade.** Priority from low to high: built-in defaults → config file → named set → environment variables → CLI flags. `fs.Visit` detects which flags were explicitly passed (vs. at their zero value) so set values aren't overwritten by unset flags.
 
 **Typst block extraction.** `#metadata((content))` uses nested parens — the outer call parens and an inner tuple. `typstFindBlock` scans byte-by-byte tracking paren depth, so nested structures like `datetime(year: 2024, month: 6, day: 1)` are handled without a full parser. The same function handles both `#metadata((` and `#set document(` via a prefix argument.
+
+**JSON semantics are stated, not inherited.** grubber uses `encoding/json/v2`
+directly and names its options in `json.go` rather than relying on defaults
+that differ between the v1 and v2 APIs. `Deterministic` restores the sorted
+map keys that record order depends on, `EscapeForHTML` keeps older cached
+extracts diffing clean, and `AllowInvalidUTF8`/`AllowDuplicateNames` keep the
+read and write paths degrading rather than failing on defects that `doctor`
+reports. Each option has a test that fails if it is removed. The test files
+still parse with v1 `encoding/json`, which checks the output against a second
+implementation.
 
 **vCard flattening is lossy by design.** Cards are read for querying, not round-tripping: TYPE parameters, photos, and `X-` properties are dropped, `EMAIL`/`TEL`/`URL` are always arrays for consistent typing across a corpus. `UID` maps to `uid`, not `id` — `id` names a file in the fileregister convention, while a UID names one card among possibly many per file. Like Typst, every card is a block record, so `blocks_only: true` includes vCard files.
 

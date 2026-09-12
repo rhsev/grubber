@@ -1,7 +1,7 @@
 package main
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"flag"
 	"fmt"
 	"math"
@@ -136,7 +136,7 @@ func (d *Diagnostics) inspectLeadingZero(key string, node *yaml.Node) {
 		return // resolved as a string after all, nothing lost
 	}
 	// Report the value as extract will actually emit it, not as Go prints it.
-	out, err := json.Marshal(normalizeValue(v))
+	out, err := jsonv2.Marshal(normalizeValue(v), marshalOptions)
 	if err != nil {
 		return
 	}

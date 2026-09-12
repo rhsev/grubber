@@ -61,7 +61,7 @@ go build -o grubber .
 cp grubber /usr/local/bin/
 ```
 
-Requires Go 1.22+.
+Requires Go 1.27+.
 
 ### Quick start
 
