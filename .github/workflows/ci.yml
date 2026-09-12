@@ -10,7 +10,10 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        go: ["1.22", "1.23"]
+        # 1.22 is the declared minimum. "stable" covers the toolchain the
+        # release binaries are built with, where encoding/json runs on the
+        # json/v2 backend — otherwise no job tests what ships.
+        go: ["1.22", "1.23", "stable"]
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v6

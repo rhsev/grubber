@@ -122,7 +122,10 @@ func TestScanChars(t *testing.T) {
 	// SHY, ZWSP, BOM (mid-file), C1 (U+0085), CRLF — plus tab and NBSP,
 	// which must be counted (NBSP) or ignored (tab) but never fixed.
 	data := []byte("Ge\u00adsch\u00e4fte\r\nzero\u200bwidth\ufeff\u0085x\nnbsp\u00a0\tTab bleibt hier\n")
-	stats, crlf := scanChars(data)
+	stats, crlf, invalid := scanChars(data)
+	if invalid != nil {
+		t.Errorf("valid UTF-8 must not report invalid bytes, got %v", invalid)
+	}
 	if crlf == nil || crlf.count != 1 || crlf.line != 1 {
 		t.Errorf("crlf: got %+v", crlf)
 	}
@@ -158,6 +161,68 @@ func TestFixChars(t *testing.T) {
 	}
 }
 
+func TestScanCharsInvalidUTF8(t *testing.T) {
+	// A lone 0xFF, a truncated two-byte sequence (0xC3 without its
+	// continuation), and a genuine U+FFFD, which is valid text and must not
+	// be reported.
+	data := []byte("ok\nvor\xffnach \xc3 ende\n� echt\n")
+	_, _, invalid := scanChars(data)
+	if len(invalid) != 2 {
+		t.Fatalf("expected 2 distinct invalid bytes, got %v", invalid)
+	}
+	if s := invalid[0xFF]; s == nil || s.count != 1 || s.line != 2 || s.col != 4 {
+		t.Errorf("0xFF: got %+v", invalid[0xFF])
+	}
+	if s := invalid[0xC3]; s == nil || s.count != 1 || s.line != 2 {
+		t.Errorf("0xC3: got %+v", invalid[0xC3])
+	}
+
+	findings := charFindings("f.md", map[rune]*charStat{}, nil, invalid)
+	if len(findings) != 2 {
+		t.Fatalf("expected 2 findings, got %v", findings)
+	}
+	// Sorted by byte value, so 0xC3 comes before 0xFF.
+	if findings[0].Category != "invalid-utf8" || !strings.Contains(findings[0].Message, "0xC3") {
+		t.Errorf("first finding: %+v", findings[0])
+	}
+	if !strings.Contains(findings[1].Message, "0xFF") {
+		t.Errorf("second finding: %+v", findings[1])
+	}
+}
+
+func TestFixCharsKeepsInvalidUTF8(t *testing.T) {
+	// --fix must not silently repair or drop an undecodable byte: the right
+	// repair depends on the original encoding. CRLF still gets normalized.
+	data := []byte("vor\xffnach\r\n")
+	got := fixChars(data)
+	if string(got) != "vor\xffnach\n" {
+		t.Errorf("invalid byte must survive --fix, got %q", got)
+	}
+}
+
+func TestDoctorInvalidUTF8IsNotFixed(t *testing.T) {
+	// A file whose only finding is an invalid byte must be reported and left
+	// untouched, like suspect-char.
+	dir := t.TempDir()
+	md := filepath.Join(dir, "note.md")
+	data := []byte("---\ntitle: vor\xffnach\n---\n")
+	if err := os.WriteFile(md, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	res := doctorScan([]string{md}, true)
+	if res.fixed != 0 {
+		t.Errorf("invalid-utf8 alone must not trigger a rewrite, fixed=%d", res.fixed)
+	}
+	got, _ := os.ReadFile(md)
+	if string(got) != string(data) {
+		t.Errorf("file must be untouched, got %q", got)
+	}
+	if findCategory(res.findings, "invalid-utf8") == nil {
+		t.Errorf("no invalid-utf8 finding, got %v", res.findings)
+	}
+}
+
 func TestZWJSurvivesFix(t *testing.T) {
 	// A composed emoji is held together by U+200D. --fix must leave it alone,
 	// or 👨‍👩‍👧‍👦 falls apart into four people.
@@ -166,12 +231,12 @@ func TestZWJSurvivesFix(t *testing.T) {
 		t.Errorf("ZWJ must survive --fix:\n got  %q\n want %q", got, family)
 	}
 
-	stats, _ := scanChars([]byte(family))
+	stats, _, _ := scanChars([]byte(family))
 	s := stats[0x200D]
 	if s == nil || s.count != 4 {
 		t.Fatalf("ZWJ should be counted, got %+v", s)
 	}
-	findings := charFindings("f.md", stats, nil)
+	findings := charFindings("f.md", stats, nil, nil)
 	if len(findings) != 1 || findings[0].Category != "suspect-char" {
 		t.Errorf("ZWJ must be reported as suspect-char, got %v", findings)
 	}

@@ -229,13 +229,32 @@ type charStat struct {
 	line, col int // first occurrence
 }
 
-// scanChars walks the raw file bytes and tallies removable runes, NBSP, and
-// CRLF line endings, with the first occurrence of each.
-func scanChars(data []byte) (stats map[rune]*charStat, crlf *charStat) {
+// scanChars walks the raw file bytes and tallies removable runes, the suspect
+// ones, invalid UTF-8 bytes, and CRLF line endings, with the first occurrence
+// of each. invalid is nil unless the file holds bytes that are not valid
+// UTF-8; those are rare and the map is allocated only when one turns up.
+func scanChars(data []byte) (stats map[rune]*charStat, crlf *charStat, invalid map[byte]*charStat) {
 	stats = make(map[rune]*charStat)
 	line, col := 1, 1
 	for i := 0; i < len(data); {
 		r, size := utf8.DecodeRune(data[i:])
+		// DecodeRune reports RuneError with size 1 for a byte that cannot
+		// start or continue a sequence. A real U+FFFD in the file decodes
+		// with size 3 and is valid text, so the size is what separates them.
+		if r == utf8.RuneError && size == 1 {
+			if invalid == nil {
+				invalid = make(map[byte]*charStat)
+			}
+			s := invalid[data[i]]
+			if s == nil {
+				s = &charStat{line: line, col: col}
+				invalid[data[i]] = s
+			}
+			s.count++
+			i++
+			col++
+			continue
+		}
 		if r == '\r' && i+1 < len(data) && data[i+1] == '\n' {
 			if crlf == nil {
 				crlf = &charStat{line: line, col: col}
@@ -260,7 +279,7 @@ func scanChars(data []byte) (stats map[rune]*charStat, crlf *charStat) {
 			col++
 		}
 	}
-	return stats, crlf
+	return stats, crlf, invalid
 }
 
 // fixChars returns data with removable runes stripped and CRLF normalized to
@@ -282,19 +301,30 @@ func fixChars(data []byte) []byte {
 	return out
 }
 
-// charFindings converts a scan into findings, sorted by codepoint for
-// deterministic output.
-func charFindings(path string, stats map[rune]*charStat, crlf *charStat) []Finding {
+// charFindings converts a scan into findings, sorted by codepoint (and by
+// byte value for invalid UTF-8) for deterministic output.
+func charFindings(path string, stats map[rune]*charStat, crlf *charStat, invalid map[byte]*charStat) []Finding {
 	runes := make([]rune, 0, len(stats))
 	for r := range stats {
 		runes = append(runes, r)
 	}
 	sort.Slice(runes, func(i, j int) bool { return runes[i] < runes[j] })
 
+	bytes := make([]int, 0, len(invalid))
+	for b := range invalid {
+		bytes = append(bytes, int(b))
+	}
+	sort.Ints(bytes)
+
 	var findings []Finding
 	if crlf != nil {
 		findings = append(findings, Finding{path, crlf.line, crlf.col, "crlf",
 			fmt.Sprintf("CRLF line endings ×%d, normalized to LF by --fix", crlf.count)})
+	}
+	for _, b := range bytes {
+		s := invalid[byte(b)]
+		findings = append(findings, Finding{path, s.line, s.col, "invalid-utf8",
+			fmt.Sprintf("byte 0x%02X is not valid UTF-8 ×%d, reaches extract as U+FFFD", b, s.count)})
 	}
 	for _, r := range runes {
 		s := stats[r]
@@ -315,7 +345,7 @@ func charFindings(path string, stats map[rune]*charStat, crlf *charStat) []Findi
 // (--fix handles it).
 var doctorClasses = map[string][]string{
 	"yaml":  {"yaml-error", "unclosed-fence", "non-string-keys", "non-finite", "duplicate-key", "nested-mapping", "leading-zero-number"},
-	"chars": {"invisible-char", "suspect-char", "crlf"},
+	"chars": {"invisible-char", "suspect-char", "invalid-utf8", "crlf"},
 }
 
 // expandOnly resolves an --only list (class shorthands or exact category
@@ -368,8 +398,8 @@ func doctorScan(files []string, fix bool) doctorResult {
 		res.scanned++
 		before := len(d.findings)
 
-		stats, crlf := scanChars(data)
-		d.findings = append(d.findings, charFindings(path, stats, crlf)...)
+		stats, crlf, invalid := scanChars(data)
+		d.findings = append(d.findings, charFindings(path, stats, crlf, invalid)...)
 		fixable := crlf != nil
 		for r := range stats {
 			if removableRune(r) || r == '\r' {
@@ -565,6 +595,8 @@ that break search and pipelines. Categories:
   invisible-char   soft hyphen, zero-width, bidi, BOM, C0/C1 controls
   suspect-char     NBSP and ZWJ — reported only, never fixed (NBSP can be
                    typography, ZWJ holds composed emoji together)
+  invalid-utf8     byte that is not valid UTF-8 — reported only, never fixed
+                   (the right repair depends on the original encoding)
   crlf             CRLF line endings, normalized to LF by --fix
 
 Output is one line per finding: file:line[:col], category, message

@@ -172,9 +172,10 @@ grubber doctor ~/notes --fix > fix-log.txt
 | `leading-zero-number` | unquoted value resolved as a number and lost its leading zero (`01711234890` → `1711234890`); when all digits are octal-valid it becomes a different number entirely (`0755` → `493`) |
 | `invisible-char` | soft hyphen, zero-width, bidi marks, BOM, C0/C1 controls — removed by `--fix` (ZWJ excepted, see below) |
 | `suspect-char` | NBSP and ZWJ; may be intentional (typography, composed emoji), reported but never fixed |
+| `invalid-utf8` | byte that is not valid UTF-8; reported but never fixed, since the right repair depends on the original encoding |
 | `crlf` | CRLF line endings; normalized to LF by `--fix` |
 
-`--only` filters the report to given categories, comma-separated, with two class shorthands: `yaml` (the seven hand-work categories above the line — fix the note) and `chars` (the three hygiene ones — `--fix` handles them). The exit code follows the filter, so `doctor --only yaml` in cron stays green while deliberate NBSPs remain in the corpus. `--only` never changes what `--fix` touches.
+`--only` filters the report to given categories, comma-separated, with two class shorthands: `yaml` (the seven hand-work categories above the line — fix the note) and `chars` (the four character-level ones, of which `--fix` handles `invisible-char` and `crlf`). The exit code follows the filter, so `doctor --only yaml` in cron stays green while deliberate NBSPs remain in the corpus. `--only` never changes what `--fix` touches.
 
 `--fix` rewrites only files with findings, atomically (temp file + rename — the file gets a new mtime/inode, so sync tools and backups see it as changed), and is idempotent. Tabs (TaskPaper semantics), NBSP and ZWJ (it holds composed emoji together) always survive. `.jsonl` files (e.g. collection indexes named in a set's `from_jsonl`) are scanned but never written — a finding there is a hint for the tool that owns them. Unicode normalization (NFC/NFD) is out of scope. [INVISIBLES.md](INVISIBLES.md) explains what problem each character class causes.
 

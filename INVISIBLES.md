@@ -90,5 +90,15 @@ the middle of prose is a paste artifact, but no rule separates that case
 from an emoji reliably enough to delete on, so the report names it and the
 file stays as it is.
 
+**Bytes that are not valid UTF-8** — reported as `invalid-utf8`, never fixed.
+The same argument as the C1 range applies, one step earlier: an undecodable
+byte still holds a character, but which one depends on the encoding the file
+came from, and guessing would invent text. Deleting is no better here,
+because unlike a C1 control the byte is not itself broken output, only
+unread. So it stays, and the report names the byte and where it sits. What
+it costs in extract: a value carrying such a byte reaches the output as
+U+FFFD, and the exact escaping of that replacement differs between Go
+versions, so a cached extract can churn without the note changing.
+
 **Unicode normalization (NFC/NFD)** is out of scope — macOS delivers NFD
 paths; that is the consumers' concern, not a file defect.
