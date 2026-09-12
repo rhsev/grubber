@@ -158,6 +158,38 @@ func TestFixChars(t *testing.T) {
 	}
 }
 
+func TestZWJSurvivesFix(t *testing.T) {
+	// A composed emoji is held together by U+200D. --fix must leave it alone,
+	// or 👨‍👩‍👧‍👦 falls apart into four people.
+	family := "Familie: 👨‍👩‍👧‍👦 und 👩‍💻\n"
+	if got := string(fixChars([]byte(family))); got != family {
+		t.Errorf("ZWJ must survive --fix:\n got  %q\n want %q", got, family)
+	}
+
+	stats, _ := scanChars([]byte(family))
+	s := stats[0x200D]
+	if s == nil || s.count != 4 {
+		t.Fatalf("ZWJ should be counted, got %+v", s)
+	}
+	findings := charFindings("f.md", stats, nil)
+	if len(findings) != 1 || findings[0].Category != "suspect-char" {
+		t.Errorf("ZWJ must be reported as suspect-char, got %v", findings)
+	}
+}
+
+func TestZeroWidthNeighboursStillRemoved(t *testing.T) {
+	// Only ZWJ leaves the removable set; its neighbours in U+200B..U+200F
+	// stay on it.
+	for _, r := range []rune{0x200B, 0x200C, 0x200E, 0x200F} {
+		if !removableRune(r) {
+			t.Errorf("U+%04X should still be removable", r)
+		}
+	}
+	if removableRune(0x200D) {
+		t.Error("ZWJ must not be removable")
+	}
+}
+
 func TestFixCharsLoneCR(t *testing.T) {
 	if got := string(fixChars([]byte("a\rb\r\nc"))); got != "ab\nc" {
 		t.Errorf("lone CR should be removed, CRLF normalized: got %q", got)

@@ -17,11 +17,10 @@ conversions. Nobody types them.
 record, and the character travels along with every copy. Main source:
 clipped newspaper articles.
 
-**U+200B–U+200D ZERO WIDTH SPACE / NON-JOINER / JOINER** — zero pixels wide,
-but a real character in the string. Breaks words for search and comparison
-exactly like the soft hyphen. ZWJ additionally glues emoji sequences
-together; in prose it has no business. Text copied out of chat UIs often
-carries these in bulk.
+**U+200B–U+200C ZERO WIDTH SPACE / NON-JOINER** — zero pixels wide, but a
+real character in the string. Breaks words for search and comparison exactly
+like the soft hyphen. Text copied out of chat UIs often carries these in
+bulk. U+200D JOINER is the exception and is kept, see below.
 
 **U+200E/200F and U+202A–202E bidi marks, embeddings, overrides** — control
 left-to-right/right-to-left rendering. Useless in plain notes, and
@@ -83,6 +82,13 @@ touched.
 **U+00A0 NO-BREAK SPACE** — can be intentional typography (`10 €`,
 `Dr. Müller` without a break). Reported as its own category
 (`suspect-char`), never fixed.
+
+**U+200D ZERO WIDTH JOINER** — same category, for a sharper reason: it is
+what holds a composed emoji together. Removing it turns 👨‍👩‍👧‍👦 into four
+separate people and 👩‍💻 into a woman beside a laptop, silently. A joiner in
+the middle of prose is a paste artifact, but no rule separates that case
+from an emoji reliably enough to delete on, so the report names it and the
+file stays as it is.
 
 **Unicode normalization (NFC/NFD)** is out of scope — macOS delivers NFD
 paths; that is the consumers' concern, not a file defect.

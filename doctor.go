@@ -191,11 +191,22 @@ func charName(r rune) string {
 	return "CONTROL CHARACTER"
 }
 
+// suspectRune reports whether r is invisible but can be there on purpose, so
+// it is reported as suspect-char and never fixed. NBSP is intentional
+// typography (`10 €`, `Dr. Müller`); ZWJ is what holds a composed emoji
+// together, and stripping it turns 👨‍👩‍👧‍👦 into four separate people.
+func suspectRune(r rune) bool {
+	return r == 0x00A0 || r == 0x200D
+}
+
 // removableRune reports whether --fix strips r. The list is deliberately
-// fixed, and tabs and NBSP are deliberately NOT on it — tabs carry TaskPaper
-// semantics, NBSP can be intentional typography.
+// fixed, and tabs and the suspect runes are deliberately NOT on it — tabs
+// carry TaskPaper semantics, the suspect ones can be meant.
 // \r is handled separately (CRLF→LF normalization; lone \r is removed).
 func removableRune(r rune) bool {
+	if suspectRune(r) {
+		return false
+	}
 	switch {
 	case r == 0x00AD || r == 0xFEFF:
 		return true
@@ -234,7 +245,7 @@ func scanChars(data []byte) (stats map[rune]*charStat, crlf *charStat) {
 			line, col = line+1, 1
 			continue
 		}
-		if removableRune(r) || r == 0x00A0 || r == '\r' { // lone \r: removable
+		if removableRune(r) || suspectRune(r) || r == '\r' { // lone \r: removable
 			s := stats[r]
 			if s == nil {
 				s = &charStat{line: line, col: col}
@@ -288,7 +299,7 @@ func charFindings(path string, stats map[rune]*charStat, crlf *charStat) []Findi
 	for _, r := range runes {
 		s := stats[r]
 		category := "invisible-char"
-		if r == 0x00A0 {
+		if suspectRune(r) {
 			category = "suspect-char" // reported, never fixed
 		}
 		findings = append(findings, Finding{path, s.line, s.col, category,
@@ -552,7 +563,8 @@ that break search and pipelines. Categories:
                    unquoted number lost its leading zero (01711234890 →
                    1711234890); octal-valid digits become another number
   invisible-char   soft hyphen, zero-width, bidi, BOM, C0/C1 controls
-  suspect-char     NBSP — reported only, never fixed (may be intentional)
+  suspect-char     NBSP and ZWJ — reported only, never fixed (NBSP can be
+                   typography, ZWJ holds composed emoji together)
   crlf             CRLF line endings, normalized to LF by --fix
 
 Output is one line per finding: file:line[:col], category, message
