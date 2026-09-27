@@ -7,7 +7,12 @@ import (
 	"strings"
 )
 
-const version = "0.16.0"
+// version is stamped at build time from the tag: the Makefile passes
+// -ldflags "-X main.version=$(git describe --tags --dirty)". A plain
+// `go build` cannot know the version, so it says so rather than carrying a
+// literal that would drift from the tag the way this one did for two
+// releases.
+var version = "dev"
 
 type multiFlag []string
 
