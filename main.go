@@ -140,6 +140,7 @@ func runExtract(args []string, pathOverride string) {
 		extensionsStr   string
 		mergeOnStr      string
 		explodeStr      string
+		inheritStr      string
 		filters         multiFlag
 		fromJSONL       multiFlag
 	)
@@ -167,6 +168,7 @@ func runExtract(args []string, pathOverride string) {
 	fs.Var(&fromJSONL, "from-jsonl", "Read records from JSONL file or directory (repeatable)")
 	fs.StringVar(&mergeOnStr, "merge-on", "", "Merge --from-jsonl records into scanned records on these key fields (comma-separated)")
 	fs.StringVar(&explodeStr, "explode", "", "Expand a field's array value into one record per element (before merge)")
+	fs.StringVar(&inheritStr, "inherit", "", "Frontmatter fields blocks inherit (comma-separated; empty = none; default: all)")
 
 	fs.Parse(reorderArgs(args, valueFlagNames(fs))) //nolint:errcheck
 
@@ -199,6 +201,8 @@ func runExtract(args []string, pathOverride string) {
 		mergeOnSet:         set["merge-on"],
 		explodeStr:         explodeStr,
 		explodeSet:         set["explode"],
+		inheritStr:         inheritStr,
+		inheritSet:         set["inherit"],
 		filters:            []string(filters),
 		notesDir:           pathOverride,
 		fromJSONL:          []string(fromJSONL),
@@ -226,6 +230,8 @@ type execOpts struct {
 	mergeOnSet         bool
 	explodeStr         string
 	explodeSet         bool
+	inheritStr         string
+	inheritSet         bool
 	filters            []string
 	notesDir           string
 	fromJSONL          []string
@@ -341,6 +347,8 @@ func execute(opts execOpts) {
 		explode = strings.TrimSpace(opts.explodeStr)
 	}
 
+	inherit := resolveInherit(cfg.DefaultInherit(), setCfg, opts.inheritSet, opts.inheritStr)
+
 	// extensions: config default → set → env → CLI (nil = all registered parsers)
 	extensions := cfg.DefaultExtensions()
 	if exts := cfgStrSlice(setCfg, "extensions"); exts != nil {
@@ -359,6 +367,9 @@ func execute(opts execOpts) {
 		os.Exit(1)
 	}
 	g.SetExplode(explode)
+	if inherit != nil {
+		g.SetInherit(inherit)
+	}
 
 	var out *os.File
 	if opts.outputFile != "" {
@@ -439,6 +450,24 @@ func cfgIntPtr(m map[string]any, key string) *int {
 	return nil
 }
 
+// resolveInherit applies config default → set → CLI to the inherit list.
+// Unlike merge_on, empty and absent differ: nil inherits every field, an
+// empty list none. So an explicitly given --inherit= must come out as an
+// empty non-nil list, which splitTrim alone would turn into nil.
+func resolveInherit(dflt []string, setCfg map[string]any, cliSet bool, cliStr string) []string {
+	inherit := dflt
+	if in := cfgStrSlice(setCfg, "inherit"); in != nil {
+		inherit = in
+	}
+	if cliSet {
+		inherit = splitTrim(cliStr, ",")
+		if inherit == nil {
+			inherit = []string{}
+		}
+	}
+	return inherit
+}
+
 func cfgStrSlice(m map[string]any, key string) []string {
 	if m == nil {
 		return nil
@@ -515,6 +544,11 @@ Options:
       --array-fields=FIELDS Normalize fields to arrays (comma-separated)
       --extensions=EXTS     File extensions to scan (comma-separated, default: all registered)
       --no-fill             Skip nil-filling missing keys (useful for DuckDB)
+      --inherit=FIELDS      Only these frontmatter fields reach a note's blocks
+                            (comma-separated); --inherit= passes none. Without
+                            it every field is inherited. A note without blocks
+                            keeps its whole frontmatter. Filters see the result,
+                            so a filter on a header field needs it inherited.
   -f, --filter=EXPR         Filter records (can be used multiple times)
                             Operators: = (equals), ~ (contains), ^ (starts with), ! (not equals)
                             Examples: type=vertrag, due^2025-02, name~versicher

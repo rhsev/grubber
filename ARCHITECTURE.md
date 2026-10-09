@@ -74,6 +74,20 @@ JSONL files named on `--from-jsonl` are a second input alongside the scan path. 
 
 **Typst block extraction.** `#metadata((content))` uses nested parens — the outer call parens and an inner tuple. `typstFindBlock` scans byte-by-byte tracking paren depth, so nested structures like `datetime(year: 2024, month: 6, day: 1)` are handled without a full parser. The same function handles both `#metadata((` and `#set document(` via a prefix argument.
 
+**Inheritance is a reading, not a property of the note.** Frontmatter flows
+into every block by default, because for most readers the header describes
+the group the blocks belong to. Readers that treat each block as a record of
+its own need the opposite, and both readings concern the same files, so the
+choice belongs to the call (`--inherit`), not to the note. Two edges keep it
+honest: `_note_file` is provenance and always passes, and a record that is the
+frontmatter itself (a note without blocks, or `-m`) is never thinned out,
+which is why `noteResult` records whether its records are real blocks. The
+filter runs after inheritance, so it sees what the reader asked for. An empty
+list and an absent one differ (none vs. all), so the config/CLI resolution in
+`resolveInherit` keeps them apart where `splitTrim` alone would not. One
+consequence of the precedence order: a list in `defaults:` cannot be widened
+back to "all" by a set or the CLI.
+
 **Comparisons normalize, output does not.** Filter values and the field values
 they are matched against both pass through `foldValue` (NFC, then lowercase),
 and `--merge-on` keys through NFC alone. macOS file names arrive decomposed,

@@ -19,6 +19,11 @@ type Record map[string]any
 type noteResult struct {
 	metadata Record
 	records  []Record
+	// blocks is true when records came from the note's data blocks. False
+	// means records is the placeholder for a note without blocks (or a -m
+	// run), whose one record *is* the frontmatter, so --inherit leaves it
+	// whole.
+	blocks bool
 }
 
 type Grubber struct {
@@ -38,6 +43,9 @@ type Grubber struct {
 	// explode names a field whose array value is expanded into one record per
 	// element before merge (see explodeRecords). Empty = disabled.
 	explode string
+	// inherit limits which frontmatter fields reach a note's blocks (see
+	// SetInherit). nil = every field, the default; an empty map = none.
+	inherit map[string]bool
 	// postFilter holds the filters while --merge-on or --explode is active: they
 	// must run against the *merged/exploded* records, otherwise a filter on an
 	// annotation field would drop the index record before it can back-fill its
@@ -53,6 +61,23 @@ func (g *Grubber) SetExplode(field string) {
 	if field != "" && g.filter != nil {
 		g.postFilter, g.filter = g.filter, nil
 	}
+}
+
+// SetInherit limits frontmatter inheritance to the given fields; an empty,
+// non-nil list inherits none. Without a call every field is inherited. Some
+// readers treat blocks as records in their own right, and a url: or sort:
+// in the note's header must not then turn up in every one of them.
+// _note_file always passes: it is grubber's provenance, not frontmatter.
+func (g *Grubber) SetInherit(keys []string) {
+	g.inherit = make(map[string]bool, len(keys))
+	for _, k := range keys {
+		g.inherit[k] = true
+	}
+}
+
+// inherits reports whether frontmatter field k goes into the records of note.
+func (g *Grubber) inherits(note *noteResult, k string) bool {
+	return g.inherit == nil || !note.blocks || k == "_note_file" || g.inherit[k]
 }
 
 func NewGrubber(notesDir string, blocksOnly, frontmatterOnly, useMmd, noFill bool, depth *int, workers int, arrayFields, filters, extensions, fromJSONL, mergeOn []string) (*Grubber, error) {
@@ -380,7 +405,9 @@ func (g *Grubber) processFile(path string) ([]Record, error) {
 	for _, rec := range note.records {
 		flat := make(Record, len(note.metadata)+len(rec)+1)
 		for k, v := range note.metadata {
-			flat[k] = v
+			if g.inherits(note, k) {
+				flat[k] = v
+			}
 		}
 		for k, v := range rec {
 			flat[k] = v
@@ -426,13 +453,14 @@ func (g *Grubber) buildResult(path string, frontmatter Record, yamlRecords []Rec
 
 	hasFrontmatter := len(frontmatter) > 0
 	records := yamlRecords
+	blocks := len(records) > 0
 	if len(records) == 0 && !g.blocksOnly && !g.frontmatterOnly && hasFrontmatter {
 		records = []Record{{}}
 	}
 	if len(records) == 0 && g.frontmatterOnly && hasFrontmatter {
 		records = []Record{{}}
 	}
-	return &noteResult{metadata: metadata, records: records}
+	return &noteResult{metadata: metadata, records: records, blocks: blocks}
 }
 
 func (g *Grubber) textFiles() ([]string, error) {

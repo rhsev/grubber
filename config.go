@@ -87,6 +87,13 @@ func (c *Config) DefaultMergeOn() []string {
 	return toStringSlice(c.defaults["merge_on"])
 }
 
+// DefaultInherit returns nil when defaults has no inherit key (every
+// frontmatter field is inherited) and a non-nil list otherwise, so that
+// `inherit: []` can mean "none".
+func (c *Config) DefaultInherit() []string {
+	return toStringSlice(c.defaults["inherit"])
+}
+
 func (c *Config) DefaultExplode() string {
 	if v, ok := c.defaults["explode"].(string); ok {
 		return v

@@ -278,6 +278,12 @@ sets:
     path: ~/notes
     from_jsonl: ["~/notes/collections/"]
     merge_on: [id, binder]
+
+  # blocks as records in their own right: no header field leaks into them
+  refs:
+    path: ~/notes
+    blocks_only: true
+    inherit: []
 ```
 
 Use sets with `grubber extract --set contracts`.
@@ -309,6 +315,7 @@ CLI flags > Config set > Environment variables > Config defaults > Built-in defa
 -d, --depth N             Limit directory recursion depth (0 = no subdirectories)
     --workers N           Number of parallel workers (default: NumCPU)
     --no-fill             Skip nil-filling missing keys (useful for DuckDB)
+    --inherit FIELDS      Only these frontmatter fields reach a note's blocks (empty = none; default: all)
 -f, --filter EXPR         Filter records (repeatable)
     --from-jsonl PATH    Read records from JSONL file or directory; union into output (repeatable)
     --merge-on KEYS       Merge --from-jsonl records into scanned records sharing these key fields
@@ -330,6 +337,16 @@ grubber reads two things from a Markdown file: YAML frontmatter and fenced YAML 
 - **Blocks keep document order.** The records from one note come out in the order the blocks appear in it, in every output format. Note that this is relative order, not position: a block that yields no record (empty, comments only, or not a mapping) is skipped, so the Nth record is not necessarily the Nth block.
 - On field name collision, the YAML block wins over frontmatter.
 - Notes without YAML blocks are extracted as frontmatter-only records (unless `--blocks-only`).
+
+**Limiting inheritance (`--inherit`).** Inheriting every header field is what a block wants when the note describes a group, like an album whose name sits in the frontmatter. It is wrong when each block is a record in its own right: a `url:` in the header then turns up in every block, as if each were a link. `--inherit` takes a list of the header fields that may pass:
+
+```sh
+grubber extract ~/notes --inherit=album,period   # only these reach the blocks
+grubber extract ~/notes --inherit=               # none
+grubber extract ~/notes                          # all, as without the flag
+```
+
+A block that sets a field itself keeps its own value either way. `_note_file` and `_mtime` always pass, being grubber's own provenance rather than frontmatter. A note without blocks, and every record under `-m`, *is* its frontmatter and stays complete. Filters see the result, so a filter on a header field (`-f album~Safari`) needs that field inherited. `inherit` can also live in the config, in `defaults:` or a set; `inherit: []` there means none, and an explicit `--inherit=` overrides a configured list.
 
 ### Typst
 
