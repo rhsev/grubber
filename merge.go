@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"strings"
+
+	"golang.org/x/text/unicode/norm"
 )
 
 // mergeRecords merges JSONL-source records into scanned records that share
@@ -51,7 +53,10 @@ func mergeRecords(scanned, jsonl []Record, keys []string) []Record {
 
 // mergeKey builds the identity key for a record. The first key field is the
 // primary identity and must be present and non-empty; later fields default to
-// "" when absent (e.g. a record that is in no binder).
+// "" when absent (e.g. a record that is in no binder). Key parts are compared
+// in NFC, so a binder name pasted from Finder (NFD) into a note still meets
+// the composed form the index holds. Case stays significant; only the key is
+// normalized, never the merged values.
 func mergeKey(r Record, keys []string) (string, bool) {
 	primary := r[keys[0]]
 	if primary == nil || primary == "" {
@@ -60,7 +65,7 @@ func mergeKey(r Record, keys []string) (string, bool) {
 	parts := make([]string, len(keys))
 	for i, k := range keys {
 		if v := r[k]; v != nil {
-			parts[i] = fmt.Sprint(v)
+			parts[i] = norm.NFC.String(fmt.Sprint(v))
 		}
 	}
 	return strings.Join(parts, "\x00"), true

@@ -1,6 +1,13 @@
 package main
 
-import "testing"
+import (
+	"bytes"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"golang.org/x/text/unicode/norm"
+)
 
 func TestParseConditionValid(t *testing.T) {
 	cases := []struct {
@@ -136,5 +143,94 @@ func TestFilterNotEqualsAlias(t *testing.T) {
 	}
 	if !f.Match(Record{"type": "meeting"}) {
 		t.Error("type!=vertrag should accept type=meeting")
+	}
+}
+
+// nfcNFD returns the composed and decomposed form of s and fails the test if
+// they happen to be byte-equal, which would make every check below vacuous.
+// The forms are built here rather than written as literals because editors
+// tend to normalize source files silently.
+func nfcNFD(t *testing.T, s string) (nfc, nfd string) {
+	t.Helper()
+	nfc, nfd = norm.NFC.String(s), norm.NFD.String(s)
+	if nfc == nfd {
+		t.Fatalf("%q has no decomposable characters", s)
+	}
+	return nfc, nfd
+}
+
+func TestFilterMatchesAcrossNormalizationForms(t *testing.T) {
+	nfcVal, nfdVal := nfcNFD(t, "Ümläut Reise")
+	nfcNeedle, nfdNeedle := nfcNFD(t, "Ümläut")
+
+	cases := []struct {
+		name   string
+		value  string
+		filter string
+		want   bool
+	}{
+		{"= NFD value, NFC filter", nfdVal, "album=" + nfcVal, true},
+		{"= NFC value, NFD filter", nfcVal, "album=" + nfdVal, true},
+		{"~ NFD value, NFC filter", nfdVal, "album~" + nfcNeedle, true},
+		{"~ NFC value, NFD filter", nfcVal, "album~" + nfdNeedle, true},
+		{"^ NFD value, NFC filter", nfdVal, "album^" + nfcNeedle, true},
+		{"^ NFC value, NFD filter", nfcVal, "album^" + nfdNeedle, true},
+		// "!" must exclude the record whichever form either side is in.
+		{"! NFD value, NFC filter", nfdVal, "album!" + nfcVal, false},
+		{"! NFC value, NFD filter", nfcVal, "album!" + nfdVal, false},
+	}
+	for _, tc := range cases {
+		if got := filter(t, tc.filter).Match(Record{"album": tc.value}); got != tc.want {
+			t.Errorf("%s: Match = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestFilterResultDoesNotDependOnForm(t *testing.T) {
+	// The point of normalizing is that the form a value happens to be stored
+	// in stops mattering. That has to hold for plain ASCII filters too: NFD
+	// spells ü as u plus a combining mark, so before normalization "~u"
+	// matched it in NFD text but not in NFC text.
+	nfcVal, nfdVal := nfcNFD(t, "Müller")
+	for _, expr := range []string{"name~u", "name^mu", "name=müller", "name!müller", "name~ü"} {
+		f := filter(t, expr)
+		if a, b := f.Match(Record{"name": nfcVal}), f.Match(Record{"name": nfdVal}); a != b {
+			t.Errorf("%s: NFC value matched %v, NFD value matched %v", expr, a, b)
+		}
+	}
+}
+
+func TestFilteredOutputKeepsOriginalForm(t *testing.T) {
+	// Normalization is for comparing only: a value written in NFD must leave
+	// grubber as NFD, byte for byte.
+	nfcVal, nfdVal := nfcNFD(t, "Ümläut Reise")
+	dir := t.TempDir()
+	note := "---\nalbum: " + nfdVal + "\n---\n\n```yaml\ntype: ref\nid: 1\n```\n"
+	if err := os.WriteFile(filepath.Join(dir, "n.md"), []byte(note), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	g, err := NewGrubber(dir, false, false, false, true, nil, 0, nil,
+		[]string{"album~" + nfcVal}, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	records, _, err := g.Extract(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("NFC filter should find the NFD note, got %d records", len(records))
+	}
+	if records[0]["album"] != nfdVal {
+		t.Errorf("record value was rewritten: got %q, want the NFD original", records[0]["album"])
+	}
+
+	var buf bytes.Buffer
+	if err := g.OutputJSON(records, &buf); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(buf.Bytes(), []byte(nfdVal)) || bytes.Contains(buf.Bytes(), []byte(nfcVal)) {
+		t.Errorf("JSON output must carry the NFD bytes unchanged:\n%s", buf.String())
 	}
 }

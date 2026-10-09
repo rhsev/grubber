@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"golang.org/x/text/unicode/norm"
 )
 
 func md(id, binder string, extra map[string]any) Record {
@@ -219,5 +221,49 @@ func TestStreamJSONLMergeOn(t *testing.T) {
 	}
 	if first["id"] == "ref-aaa" && first["filename"] != "vertrag.pdf" {
 		t.Errorf("merged record lacks back-filled filename: %v", first)
+	}
+}
+
+func TestMergeOnMeetsAcrossNormalizationForms(t *testing.T) {
+	// A binder name pasted from Finder into a note arrives in NFD; the index
+	// fileregister writes holds it in NFC. They are one record, not two.
+	nfcBinder, nfdBinder := norm.NFC.String("Reise Ümläut"), norm.NFD.String("Reise Ümläut")
+	if nfcBinder == nfdBinder {
+		t.Fatal("test binder has no decomposable characters")
+	}
+	dir := t.TempDir()
+	notes := filepath.Join(dir, "notes")
+	col := filepath.Join(notes, "collections")
+	if err := os.MkdirAll(col, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	note := "```yaml\nid: ref-aaa\nbinder: " + nfdBinder + "\nstatus: annotated\n```\n"
+	if err := os.WriteFile(filepath.Join(notes, "binder.md"), []byte(note), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	index := `{"id": "ref-aaa", "binder": "` + nfcBinder + `", "filename": "vertrag.pdf"}` + "\n"
+	if err := os.WriteFile(filepath.Join(col, "inbox.jsonl"), []byte(index), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	g, err := NewGrubber(notes, false, false, false, true, nil, 0, nil,
+		nil, nil, []string{col}, []string{"id", "binder"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	records, _, err := g.Extract(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("NFD note and NFC index should merge into 1 record, got %d: %v", len(records), records)
+	}
+	r := records[0]
+	if r["filename"] != "vertrag.pdf" {
+		t.Errorf("index field not back-filled: %v", r)
+	}
+	// Only the key is normalized; the scanned record keeps its own bytes.
+	if r["binder"] != nfdBinder {
+		t.Errorf("binder was rewritten: got %q, want the note's NFD form", r["binder"])
 	}
 }

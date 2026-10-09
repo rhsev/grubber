@@ -142,7 +142,7 @@ grubber doctor ~/notes
 | `^` | starts with | `end^2025` |
 | `!` | not equals | `status!archived` |
 
-Filters are case-insensitive and work on arrays (matches if any element matches).
+Filters are case-insensitive and work on arrays (matches if any element matches). Comparisons are Unicode-normalized (NFC), so a value copied from a Finder file name matches a filter typed on the keyboard, although the two encode an umlaut differently. Output keeps the bytes as written.
 
 ## Checking your notes (`doctor`)
 
@@ -228,7 +228,7 @@ When the source is a fileregister index (`collections/*.jsonl`), the wire format
 grubber extract ~/notes --from-jsonl ~/notes/collections/ --merge-on id,binder
 ```
 
-A source record that matches a scanned record on all key fields is dropped after back-filling any fields the scanned record lacks (the scanned record wins; `_note_file`/`_mtime` are never touched). Unmatched source records pass through. The first key field is the primary identity — records without it are never merge candidates; later keys default to `""` when absent. Filters run *after* the merge, so they see back-filled fields. With `--format jsonl` the merge buffers instead of streaming.
+A source record that matches a scanned record on all key fields is dropped after back-filling any fields the scanned record lacks (the scanned record wins; `_note_file`/`_mtime` are never touched). Unmatched source records pass through. The first key field is the primary identity — records without it are never merge candidates; later keys default to `""` when absent. Keys are compared Unicode-normalized like filters, but case-sensitive. Filters run *after* the merge, so they see back-filled fields. With `--format jsonl` the merge buffers instead of streaming.
 
 **Exploding (`--explode FIELD`).** When the index keeps a single record per file with a field holding an array (e.g. fileregister stores `binder: [projekt-a, lesen]`), `--explode FIELD` expands each such record into one row per element — the element as a scalar — *before* the merge. Per-binder Markdown blocks carry a single `binder`, so the exploded index rows then line up and collapse on `(id, binder)`:
 

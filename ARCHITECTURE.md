@@ -74,6 +74,16 @@ JSONL files named on `--from-jsonl` are a second input alongside the scan path. 
 
 **Typst block extraction.** `#metadata((content))` uses nested parens — the outer call parens and an inner tuple. `typstFindBlock` scans byte-by-byte tracking paren depth, so nested structures like `datetime(year: 2024, month: 6, day: 1)` are handled without a full parser. The same function handles both `#metadata((` and `#set document(` via a prefix argument.
 
+**Comparisons normalize, output does not.** Filter values and the field values
+they are matched against both pass through `foldValue` (NFC, then lowercase),
+and `--merge-on` keys through NFC alone. macOS file names arrive decomposed,
+keyboard input composed, and without this a typed `folder~Verträge` found
+none of the 3,073 mails whose folder name came from the file system. The
+records themselves are never rewritten: grubber reads, and a value leaves it
+in the form the note or index holds. NFC comes from `golang.org/x/text`, the
+second dependency next to yaml.v3; the standard library carries the same
+package only as an internal vendor copy.
+
 **JSON semantics are stated, not inherited.** grubber uses `encoding/json/v2`
 directly and names its options in `json.go` rather than relying on defaults
 that differ between the v1 and v2 APIs. `Deterministic` restores the sorted

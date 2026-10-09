@@ -4,10 +4,22 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"golang.org/x/text/unicode/norm"
 )
 
 // "!=" is accepted as an alias for "!"; m[2][0] yields '!' for both.
 var filterRe = regexp.MustCompile(`^([^=~^!]+)(!=|[=~^!])(.*)$`)
+
+// foldValue is the comparison form of a filter value and of the field values
+// it is matched against; both sides go through it, so they cannot drift
+// apart. NFC first: text copied from Finder file names arrives decomposed
+// (NFD), text typed on a keyboard composed, and the two look identical while
+// comparing unequal byte for byte. Only the comparison is normalized; the
+// record keeps its bytes as the note wrote them.
+func foldValue(s string) string {
+	return strings.ToLower(norm.NFC.String(s))
+}
 
 type condition struct {
 	field string
@@ -39,7 +51,7 @@ func parseCondition(s string) (condition, error) {
 	return condition{
 		field: strings.TrimSpace(m[1]),
 		op:    m[2][0],
-		value: strings.ToLower(strings.TrimSpace(m[3])),
+		value: foldValue(strings.TrimSpace(m[3])),
 	}, nil
 }
 
@@ -61,7 +73,7 @@ func matchCondition(r Record, c condition) bool {
 	values := fieldValues(v)
 	lower := make([]string, len(values))
 	for i, s := range values {
-		lower[i] = strings.ToLower(s)
+		lower[i] = foldValue(s)
 	}
 
 	switch c.op {
