@@ -1,6 +1,6 @@
 # Example Schema
 
-grubber is schema-agnostic: any valid YAML in frontmatter or code blocks will be extracted. The schema below is an example for personal knowledge management. See the [README](../README.md#how-to-structure-your-notes) for how grubber reads your notes.
+grubber is schema-agnostic. Any valid YAML in frontmatter or code blocks is extracted. The schema below is an example for personal knowledge management. See the [README](../README.md#how-to-structure-your-notes) for how grubber reads your notes.
 
 ## Frontmatter
 
@@ -93,4 +93,4 @@ end:
 owner: Bob Lee
 ```
 
-These are examples. Add any fields you need — grubber extracts whatever YAML it finds.
+These are examples. Add any fields you need; grubber extracts whatever YAML it finds. The sample notes in [`examples/`](../examples/) use these record types.
