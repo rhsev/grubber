@@ -4,19 +4,22 @@
 
 A data retrieval tool for Markdown and other text files with metadata. It just grubs fast through a big data field.
 
-YAML code blocks in Markdown are usually used as code examples. grubber treats them as structured data records that live next to their context, across an entire directory of files. Think dataview without Obsidian.
+YAML code blocks in Markdown are usually used as code examples. grubber treats them as structured data records that live next to their context, across an entire directory of files.
 
 ## Quick example
 
-Input (`project-alpha.md`):
+Input (`examples/project-alpha.md`):
 
 ````markdown
 ---
 title: Project Alpha
 keywords: [project]
+created: 2025-01-10
 ---
 
 # Project Alpha
+
+## Data
 
 ```yaml
 type: project
@@ -28,17 +31,24 @@ end: 2025-06-30
 owner: Jane Smith
 ```
 
+## Notes
+
 Kickoff completed. First milestone due end of February.
+Next review scheduled for March.
 ````
 
-Output (`grubber extract examples/`):
+Output (`grubber extract examples/project-alpha.md`):
 
 ```json
 [
   {
-    "_note_file": "examples/project-alpha.md",
+    "_mtime": "2026-02-19T16:12:37Z",
+    "_note_file": "/home/you/grubber/examples/project-alpha.md",
+    "created": "2025-01-10",
     "end": "2025-06-30",
-    "keywords": ["project"],
+    "keywords": [
+      "project"
+    ],
     "name": "Project Alpha",
     "org": "Northwind Corp",
     "owner": "Jane Smith",
@@ -50,7 +60,7 @@ Output (`grubber extract examples/`):
 ]
 ```
 
-Frontmatter and YAML block are merged into one flat record. The prose stays in Markdown, untouched. Run this across a directory of 1,000 notes and you get a single JSON file with all your records.
+Frontmatter and YAML block are merged into one flat record, and grubber adds the file's path and modification time (`_note_file`, `_mtime`). The prose stays in Markdown, untouched. Run this across a directory of 1,000 notes and you get a single JSON file with all your records.
 
 ## Installation
 
@@ -73,15 +83,15 @@ grubber extract ~/notes/project.md
 
 ## Why
 
-Structured data and the context around it usually live in different places. A database for the fields, a wiki or folder for the notes. grubber keeps them together: queryable YAML blocks inside Markdown files. The data stays where you read and write it.
+Structured data and the context around it usually live in different places. A database for the fields, a wiki or folder for the notes. grubber keeps them together, as queryable YAML blocks inside Markdown files. The data stays where you read and write it.
 
-- Standard Markdown. Any editor or renderer handles the format correctly. grubber just adds a read layer on top.
+- Standard Markdown. Any editor or renderer handles the format correctly. grubber adds a read layer on top.
 - Fast enough to skip the database. 2,000 notes in under 30ms. No index, no daemon, no setup.
 - Only structure what you query. Put queryable fields in YAML blocks. Everything else stays in plain Markdown. If you'd never filter by it, don't put it in a code block.
 
 ### vs. databases
 
-grubber is not a multi-dimensional database. But it covers many use cases: filtering, sorting, aggregating flat records across thousands of files. For personal data like contracts, contacts, inventory, or projects, that's often enough. And your data stays in plain text files that outlive any software.
+grubber is not a multi-dimensional database. But it covers many use cases: filtering, sorting, aggregating flat records across thousands of files. For personal data like contracts, contacts, inventory, or projects, that's often enough, and your data stays in plain text files.
 
 ### vs. Dataview (Obsidian)
 
@@ -94,15 +104,15 @@ grubber is not a multi-dimensional database. But it covers many use cases: filte
 | Formats | Markdown only | Markdown, Typst, vCard, extensible |
 | Extensible | Plugin API | Shell scripts, any language |
 
-grubber trades live updates for tool independence. No proprietary query language to learn. If you know jq or nushell, you already know how to query grubber output.
+grubber trades live updates for tool independence. There is no proprietary query language to learn. Output is queried with jq, nushell, or similar tools.
 
 ## How it works
 
-grubber scans files for metadata and structured data, merges everything into flat records, and outputs JSON or TSV. It does one thing: extract. All logic like filtering, sorting, or aggregating happens downstream with standard tools.
+grubber scans files for metadata and structured data, merges everything into flat records, and outputs JSON or TSV. It only extracts. All logic like filtering, sorting, or aggregating happens downstream with standard tools.
 
-The primary format is Markdown: grubber reads YAML frontmatter and fenced YAML code blocks, merges them into flat records. Multiple YAML blocks per file produce multiple records, each inheriting the frontmatter fields.
+The primary format is Markdown. grubber reads YAML frontmatter and fenced YAML code blocks and merges them into flat records. Multiple YAML blocks per file produce multiple records, each inheriting the frontmatter fields.
 
-Beyond Markdown, grubber has a file-format registry that can handle other text files with metadata. Typst and vCard 3.0 are currently implemented: grubber reads `#metadata((...))` and `#set document(...)` blocks from `.typ` files, and contact cards from `.vcf` files. Which file types are scanned is configurable via `--extensions`. Other formats with native metadata conventions — such as Org-mode, AsciiDoc, or plain YAML — are natural candidates for future parsers.
+Beyond Markdown, grubber has a file-format registry that can handle other text files with metadata. Typst and vCard 3.0 are currently implemented. grubber reads `#metadata((...))` and `#set document(...)` blocks from `.typ` files, and contact cards from `.vcf` files. Which file types are scanned is configurable via `--extensions`. Other formats with native metadata conventions, such as Org-mode, AsciiDoc, or plain YAML, are candidates for future parsers.
 
 ## Usage
 
@@ -146,7 +156,7 @@ Filters are case-insensitive and work on arrays (matches if any element matches)
 
 ## Checking your notes (`doctor`)
 
-Extract is deliberately tolerant: YAML that fails strict parsing falls back to a line-by-line scan, odd values (non-string map keys, NaN) are normalized away, duplicate keys resolve last-wins. `doctor` reports every place that tolerance kicked in — and, as corpus hygiene, invisible characters that web clippings drag into notes and that silently break search and pipelines (`grep Geschäfte` won't find `Ge­schäfte` with a soft hyphen inside):
+Extract is deliberately tolerant. YAML that fails strict parsing falls back to a line-by-line scan, odd values (non-string map keys, NaN) are normalized away, and duplicate keys resolve last-wins. `doctor` reports every place where that tolerance kicked in. As corpus hygiene, it also reports invisible characters that web clippings drag into notes and that silently break search and pipelines (`grep Geschäfte` won't find `Ge­schäfte` with a soft hyphen inside):
 
 ```sh
 grubber doctor ~/notes              # report only
@@ -155,7 +165,7 @@ grubber doctor ~/notes --fix        # remove invisible characters, in place
 grubber doctor ~/notes --only yaml  # just the hand-work findings
 ```
 
-One line per finding (`file:line[:col]`, category, message, tab-separated). Exit code 0 means clean, 1 means findings — scriptable for CI or after bulk edits. The report goes to stdout and is never stored anywhere (grubber keeps no state between runs); redirect it if you want to keep it. That matters most with `--fix`, where the report is the record of what was removed:
+One line per finding (`file:line[:col]`, category, message, tab-separated). Exit code 0 means clean, 1 means findings, so the command can run in CI or after bulk edits. The report goes to stdout and is never stored anywhere (grubber keeps no state between runs); redirect it if you want to keep it. That matters most with `--fix`, where the report is the record of what was removed:
 
 ```sh
 grubber doctor ~/notes --fix > fix-log.txt
@@ -168,20 +178,20 @@ grubber doctor ~/notes --fix > fix-log.txt
 | `non-string-keys` | mapping with non-string keys (e.g. an unquoted `{{...}}`); degrades on extract |
 | `non-finite` | NaN/Inf value; extracted as null |
 | `duplicate-key` | duplicate key in one mapping; last value wins |
-| `nested-mapping` | value is a nested mapping — more structure than a flat record wants |
+| `nested-mapping` | value is a nested mapping, more structure than a flat record wants |
 | `leading-zero-number` | unquoted value resolved as a number and lost its leading zero (`01711234890` → `1711234890`); when all digits are octal-valid it becomes a different number entirely (`0755` → `493`) |
-| `invisible-char` | soft hyphen, zero-width, bidi marks, BOM, C0/C1 controls — removed by `--fix` (ZWJ excepted, see below) |
+| `invisible-char` | soft hyphen, zero-width, bidi marks, BOM, C0/C1 controls; removed by `--fix` (ZWJ excepted, see below) |
 | `suspect-char` | NBSP and ZWJ; may be intentional (typography, composed emoji), reported but never fixed |
 | `invalid-utf8` | byte that is not valid UTF-8; reported but never fixed, since the right repair depends on the original encoding |
 | `crlf` | CRLF line endings; normalized to LF by `--fix` |
 
-`--only` filters the report to given categories, comma-separated, with two class shorthands: `yaml` (the seven hand-work categories above the line — fix the note) and `chars` (the four character-level ones, of which `--fix` handles `invisible-char` and `crlf`). The exit code follows the filter, so `doctor --only yaml` in cron stays green while deliberate NBSPs remain in the corpus. `--only` never changes what `--fix` touches.
+`--only` filters the report to given categories, comma-separated, with two class shorthands: `yaml` (the first seven categories in the table, fixed by hand in the note) and `chars` (the four character-level ones, of which `--fix` handles `invisible-char` and `crlf`). The exit code follows the filter, so `doctor --only yaml` in cron stays green while deliberate NBSPs remain in the corpus. `--only` never changes what `--fix` touches.
 
-`--fix` rewrites only files with findings, atomically (temp file + rename — the file gets a new mtime/inode, so sync tools and backups see it as changed), and is idempotent. Tabs (TaskPaper semantics), NBSP and ZWJ (it holds composed emoji together) always survive. `.jsonl` files (e.g. collection indexes named in a set's `from_jsonl`) are scanned but never written — a finding there is a hint for the tool that owns them. Unicode normalization (NFC/NFD) is out of scope. [INVISIBLES.md](INVISIBLES.md) explains what problem each character class causes.
+`--fix` rewrites only files with findings, atomically (temp file + rename; the file gets a new mtime/inode, so sync tools and backups see it as changed), and is idempotent. Tabs (TaskPaper semantics), NBSP and ZWJ (it holds composed emoji together) always survive. `.jsonl` files (e.g. collection indexes named in a set's `from_jsonl`) are scanned but never written; a finding there is a hint for the tool that owns them. Unicode normalization (NFC/NFD) is out of scope. [INVISIBLES.md](INVISIBLES.md) explains what problem each character class causes.
 
 ## Piping to other tools
 
-grubber outputs JSON by default, designed for piping. The downstream tool does the thinking:
+grubber outputs JSON by default, for piping into other tools. Filtering and sorting happen in the downstream tool:
 
 ```sh
 # jq: contracts expiring in 2025
@@ -217,9 +227,9 @@ grubber extract --from-jsonl /path/to/cache1.jsonl --from-jsonl /path/to/dir/
 
 `--from-jsonl` is repeatable. If a path is a directory, every `*.jsonl` file directly inside it is read (non-recursive, sorted by filename).
 
-When the source is a fileregister index (`collections/*.jsonl`), the wire format is fixed by the shared contract in [fileregister's NOTES-schema.md §JSONL contract](https://github.com/rhsev/fileregister/blob/main/NOTES-schema.md) (schema 3: `id` string, `binder` array, `_`-prefixed keys injected at read time — grubber's preserve-else-inject for `_note_file`/`_mtime` matches it).
+When the source is a fileregister index (`collections/*.jsonl`), the wire format is fixed by the shared contract in [fileregister's NOTES-schema.md §JSONL contract](https://github.com/rhsev/fileregister/blob/main/NOTES-schema.md) (schema 3: `id` string, `binder` array, `_`-prefixed keys injected at read time; grubber's preserve-else-inject for `_note_file`/`_mtime` matches it).
 
-**Union semantics.** By default source records are concatenated with scanned records — no deduplication. Scanned records come first, then sources in the order given.
+**Union semantics.** By default source records are concatenated with scanned records, without deduplication. Scanned records come first, then sources in the order given.
 
 **Merging (`--merge-on`).** When a JSONL index and scanned annotation files describe the same logical records in two layers, `--merge-on KEYS` collapses them:
 
@@ -228,15 +238,15 @@ When the source is a fileregister index (`collections/*.jsonl`), the wire format
 grubber extract ~/notes --from-jsonl ~/notes/collections/ --merge-on id,binder
 ```
 
-A source record that matches a scanned record on all key fields is dropped after back-filling any fields the scanned record lacks (the scanned record wins; `_note_file`/`_mtime` are never touched). Unmatched source records pass through. The first key field is the primary identity — records without it are never merge candidates; later keys default to `""` when absent. Keys are compared Unicode-normalized like filters, but case-sensitive. Filters run *after* the merge, so they see back-filled fields. With `--format jsonl` the merge buffers instead of streaming.
+A source record that matches a scanned record on all key fields is dropped after back-filling any fields the scanned record lacks (the scanned record wins; `_note_file`/`_mtime` are never touched). Unmatched source records pass through. The first key field is the primary identity. Records without it are never merge candidates; later keys default to `""` when absent. Keys are compared Unicode-normalized like filters, but case-sensitive. Filters run *after* the merge, so they see back-filled fields. With `--format jsonl` the merge buffers instead of streaming.
 
-**Exploding (`--explode FIELD`).** When the index keeps a single record per file with a field holding an array (e.g. fileregister stores `binder: [projekt-a, lesen]`), `--explode FIELD` expands each such record into one row per element — the element as a scalar — *before* the merge. Per-binder Markdown blocks carry a single `binder`, so the exploded index rows then line up and collapse on `(id, binder)`:
+**Exploding (`--explode FIELD`).** When the index keeps a single record per file with a field holding an array (e.g. fileregister stores `binder: [project-a, reading]`), `--explode FIELD` expands each such record into one row per element (the element as a scalar) *before* the merge. Per-binder Markdown blocks carry a single `binder`, so the exploded index rows then line up and collapse on `(id, binder)`:
 
 ```sh
-grubber extract ~/notes --from-jsonl ~/notes/collections/ --explode binder --merge-on id,binder -f binder=projekt-a
+grubber extract ~/notes --from-jsonl ~/notes/collections/ --explode binder --merge-on id,binder -f binder=project-a
 ```
 
-Scalar or absent values pass through unchanged; an empty array yields one row without the field (a binderless row). All other fields, including provenance, are copied to every row. Like `--merge-on`, filters run *after* the explode (so `-f binder=projekt-a` keeps only the matching membership), and `--explode FIELD` can live in `defaults:`/a set (an explicit `--explode=` disables it). For a **per-file** view, omit `--explode`: a filter already matches a value *inside* an array (`-f binder=lesen` matches `[projekt-a, lesen]`).
+Scalar or absent values pass through unchanged; an empty array yields one row without the field (a binderless row). All other fields, including provenance, are copied to every row. Like `--merge-on`, filters run *after* the explode (so `-f binder=project-a` keeps only the matching membership), and `--explode FIELD` can live in `defaults:`/a set (an explicit `--explode=` disables it). For a **per-file** view, omit `--explode`, since a filter already matches a value *inside* an array (`-f binder=reading` matches `[project-a, reading]`).
 
 `merge_on` can live in the config (`defaults:` or a set), so a schema you always use needs no flag; an explicit `--merge-on=` (empty) disables it for one run. Together with `from_jsonl` in a set, the whole database definition moves into config and the command shrinks to the query:
 
@@ -245,7 +255,7 @@ grubber extract -s notes -f binder=project-alpha
 ```
 
 **Provenance (`_note_file` / `_mtime`).** grubber guarantees every emitted record carries `_note_file`:
-- If a source record already has `_note_file` (e.g., from a prior grubber run): **preserved unchanged.** Round-trip fidelity — the original Markdown path is kept.
+- If a source record already has `_note_file` (e.g., from a prior grubber run): **preserved unchanged**, so the original Markdown path survives a round trip.
 - If a source record has no `_note_file` (tool-authored lines): grubber injects the source file path.
 
 **Filters and `--array-fields`** apply to source records exactly as they do to scanned records. `-b`/`-m` (blocks-only / frontmatter-only) are scan-path concepts and do not filter source records.
@@ -262,6 +272,7 @@ defaults:
   array_fields: [keywords, category]
   extensions: [.md, .typ]
   merge_on: [id, binder]
+  filters: [status!archived]
 
 sets:
   contracts:
@@ -290,7 +301,9 @@ Use sets with `grubber extract --set contracts`.
 
 ### Override hierarchy
 
-CLI flags > Config set > Environment variables > Config defaults > Built-in defaults
+CLI flags > config set > environment variables > config defaults > built-in defaults
+
+A set named with `--set` outranks the environment variables. Filters are the exception to this order. Filters from `defaults:`, the set, and the command line are added together (duplicates dropped) instead of replacing each other.
 
 ### Environment variables
 
@@ -302,7 +315,7 @@ CLI flags > Config set > Environment variables > Config defaults > Built-in defa
 
 ### Calling grubber from a program
 
-A program that runs grubber to read notes should pass `--no-config`. The call then depends only on its arguments. grubber reads neither `config.yaml` nor the `GRUBBER_*` variables, and the directory (or `--from-jsonl`) must be given. Without the switch, `defaults.filters` is added to the program's own filters and `array_fields` turns single values into lists. `--no-config` together with `--set` ends with exit code 2.
+A program that runs grubber to read notes should pass `--no-config`. The call then depends only on its arguments. grubber reads neither `config.yaml` nor the `GRUBBER_*` variables, and the directory (or `--from-jsonl`) must be given; without either, grubber exits with code 2. Without the switch, `defaults.filters` is added to the program's own filters and `array_fields` turns single values into lists. `--no-config` together with `--set` also exits with code 2.
 
 ```sh
 grubber extract ~/notes --no-config -b --no-fill --inherit= -f type=ref
@@ -326,7 +339,7 @@ grubber extract ~/notes --no-config -b --no-fill --inherit= -f type=ref
     --no-config           Ignore config.yaml and GRUBBER_* variables (not with --set)
     --inherit FIELDS      Only these frontmatter fields reach a note's blocks (empty = none; default: all)
 -f, --filter EXPR         Filter records (repeatable)
-    --from-jsonl PATH    Read records from JSONL file or directory; union into output (repeatable)
+    --from-jsonl PATH     Read records from JSONL file or directory; union into output (repeatable)
     --merge-on KEYS       Merge --from-jsonl records into scanned records sharing these key fields
     --explode FIELD       Expand a field's array value into one record per element (before merge)
 -h, --help                Show help
@@ -341,13 +354,13 @@ grubber extract ~/notes --no-config -b --no-fill --inherit= -f type=ref
 grubber reads two things from a Markdown file: YAML frontmatter and fenced YAML code blocks (` ```yaml `). Everything else is ignored.
 
 - Frontmatter holds note-level metadata (title, keywords, created date). These fields are merged into every record from that file.
-- YAML code blocks hold structured data records. Only ` ```yaml ` blocks are read — other fenced blocks are ignored.
+- YAML code blocks hold structured data records. Only ` ```yaml ` blocks are read; other fenced blocks are ignored.
 - Multiple YAML blocks in one note produce multiple records. Each inherits the frontmatter fields.
-- **Blocks keep document order.** The records from one note come out in the order the blocks appear in it, in every output format. Note that this is relative order, not position: a block that yields no record (empty, comments only, or not a mapping) is skipped, so the Nth record is not necessarily the Nth block.
+- **Blocks keep document order.** The records from one note come out in the order the blocks appear in it, in every output format. This is relative order, not position. A block that yields no record (empty, comments only, or not a mapping) is skipped, so the Nth record is not necessarily the Nth block.
 - On field name collision, the YAML block wins over frontmatter.
 - Notes without YAML blocks are extracted as frontmatter-only records (unless `--blocks-only`).
 
-**Limiting inheritance (`--inherit`).** Inheriting every header field is what a block wants when the note describes a group, like an album whose name sits in the frontmatter. It is wrong when each block is a record in its own right: a `url:` in the header then turns up in every block, as if each were a link. `--inherit` takes a list of the header fields that may pass:
+**Limiting inheritance (`--inherit`).** Inheriting every header field is what a block wants when the note describes a group, like an album whose name sits in the frontmatter. It is wrong when each block is a record in its own right. A `url:` in the header then turns up in every block, as if each were a link. `--inherit` takes a list of the header fields that may pass:
 
 ```sh
 grubber extract ~/notes --inherit=album,period   # only these reach the blocks
@@ -361,8 +374,8 @@ A block that sets a field itself keeps its own value either way. `_note_file` an
 
 grubber reads metadata from two Typst constructs:
 
-- `#metadata((key: "value", ...)) <label>` — custom per-document metadata tuple, takes priority
-- `#set document(title: "...", author: "...", date: datetime(...))` — standard Typst document metadata
+- `#metadata((key: "value", ...)) <label>`: custom per-document metadata tuple, takes priority
+- `#set document(title: "...", author: "...", date: datetime(...))`: standard Typst document metadata
 
 Only the first matching block per file is read. `datetime(year:, month:, day:)` values are converted to `YYYY-MM-DD` strings. Arrays are supported: `("a", "b", "c")` becomes a JSON array.
 
@@ -370,11 +383,11 @@ Only the first matching block per file is read. `datetime(year:, month:, day:)` 
 
 grubber reads vCard 3.0 files (`.vcf`) as exported by Contacts.app. Each card becomes one record; a file may hold a single contact or a whole export.
 
-The mapping is deliberately lossy — cards are flattened for querying, not round-tripped:
+The mapping is deliberately lossy. Cards are flattened for querying, not round-tripped:
 
 - `FN` → `name`, `ORG` → `org` (organization only), `TITLE`, `NICKNAME`, `BDAY`, `NOTE` → same-named lowercase fields
 - `EMAIL`, `TEL`, `URL` → always arrays, even with a single value, so records type consistently across a corpus
-- `UID` → `uid` — the card's identity. In a hand-maintained file, a short slug makes it the join key to a Markdown note carrying the same `uid` in its YAML block
+- `UID` → `uid`, the card's identity. In a hand-maintained file, a short slug makes it the join key to a Markdown note carrying the same `uid` in its YAML block
 - `ADR` → one joined string; TYPE parameters (CELL/HOME/WORK), photos, and `X-` properties are dropped
 
 ### General
@@ -383,20 +396,20 @@ The mapping is deliberately lossy — cards are flattened for querying, not roun
 - A `_mtime` field (RFC3339 UTC) is added automatically with the file's last-modified time.
 - grubber scans directories recursively. Hidden directories (starting with `.`) are skipped.
 
-See [examples/SCHEMA.md](examples/SCHEMA.md) for an example schema.
+See [docs/SCHEMA.md](docs/SCHEMA.md) for an example schema.
 
 ## YAML notes
 
 grubber follows YAML 1.2. Values that look like numbers are parsed as numbers. If you want a value like a phone number or ID with a leading zero to remain a string, quote it explicitly:
 
 ```yaml
-number: "01711234567"   # string
-number: 01711234567     # parsed as a number — and not the one you expect
+phone: "01711234567"      # string
+phone_raw: 01711234567    # parsed as a number, and not the one you expect
 ```
 
 The unquoted form loses its leading zero, and YAML 1.1 octal is still decoded
 for compatibility. So when every digit is below 8, as above, the value is read
-as octal and comes out as `254097783` — a different number entirely. With an 8
+as octal and comes out as `254097783`, a different number entirely. With an 8
 or 9 somewhere it merely loses the zero (`01711234890` → `1711234890`).
 
 `grubber doctor` reports both as `leading-zero-number` and says which one
@@ -404,7 +417,7 @@ happened. Quoting is a content decision, so `--fix` leaves them alone.
 
 ## Design
 
-- Extract only. grubber reads and outputs. No transforms, no joins, no computed fields. Complexity belongs in downstream tools.
+- Extract only. grubber reads and outputs. No transforms, no joins, no computed fields.
 - Valid Markdown. The format doesn't break any renderer. grubber adds a queryable layer on top.
 - Dates are output as strings (`YYYY-MM-DD`) for safe JSON serialization.
 - Schema-agnostic. grubber extracts whatever YAML it finds. Field names and record types are up to you.
@@ -416,7 +429,7 @@ happened. Quoting is a content decision, so `--fix` leaves them alone.
 
 ## See also
 
-[matterbase](https://github.com/rhsev/matterbase) — a terminal UI built on top of grubber. Its [ARCHITECTURE.md](https://github.com/rhsev/matterbase/blob/main/ARCHITECTURE.md) also covers grubber's role in the overall stack.
+[matterbase](https://github.com/rhsev/matterbase) is a terminal UI built on top of grubber. Its [ARCHITECTURE.md](https://github.com/rhsev/matterbase/blob/main/ARCHITECTURE.md) also covers grubber's role in the overall stack.
 
 ## License
 
@@ -424,4 +437,4 @@ MIT
 
 ---
 
-*Queried by [matterbase](https://github.com/rhsev/matterbase) and [mark-twin](https://github.com/rhsev/mark-twin). Part of a family of plain-text tools — the [profile page](https://github.com/rhsev) has the map.*
+*Queried by [matterbase](https://github.com/rhsev/matterbase) and [mark-twin](https://github.com/rhsev/mark-twin). Part of a family of plain-text tools; the [profile page](https://github.com/rhsev) has the map.*
