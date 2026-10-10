@@ -134,6 +134,7 @@ func runExtract(args []string, pathOverride string) {
 		allFlag         bool
 		useMmd          bool
 		noFill          bool
+		noConfig        bool
 		depth           int
 		workers         int
 		arrayFieldsStr  string
@@ -158,6 +159,7 @@ func runExtract(args []string, pathOverride string) {
 	fs.BoolVar(&allFlag, "all", false, "Extract everything, override config defaults")
 	fs.BoolVar(&useMmd, "mmd", false, "Also parse MultiMarkdown metadata headers")
 	fs.BoolVar(&noFill, "no-fill", false, "Skip nil-filling missing keys (faster for duckdb)")
+	fs.BoolVar(&noConfig, "no-config", false, "Ignore config.yaml and GRUBBER_* variables")
 	fs.IntVar(&depth, "d", -1, "Limit directory recursion depth")
 	fs.IntVar(&depth, "depth", -1, "Limit directory recursion depth")
 	fs.IntVar(&workers, "workers", 0, "Number of parallel workers (default: NumCPU)")
@@ -192,6 +194,7 @@ func runExtract(args []string, pathOverride string) {
 		useMmd:             useMmd,
 		useMmdSet:          set["mmd"],
 		noFill:             noFill,
+		noConfig:           noConfig,
 		depth:              depth,
 		depthSet:           set["d"] || set["depth"],
 		workers:            workers,
@@ -221,6 +224,7 @@ type execOpts struct {
 	useMmd             bool
 	useMmdSet          bool
 	noFill             bool
+	noConfig           bool
 	depth              int
 	depthSet           bool
 	workers            int
@@ -238,7 +242,21 @@ type execOpts struct {
 }
 
 func execute(opts execOpts) {
-	cfg := NewConfig()
+	cfg, getenv := NewConfig(), os.Getenv
+	if opts.noConfig {
+		// Only the command line counts: no config file, no GRUBBER_*
+		// variables, and no fallback to the cwd for the directory. Meant for
+		// programs that call grubber and must not depend on the user's setup.
+		if opts.setName != "" {
+			fmt.Fprintln(os.Stderr, "Error: --no-config and --set exclude each other")
+			os.Exit(2)
+		}
+		if opts.notesDir == "" && len(opts.fromJSONL) == 0 {
+			fmt.Fprintln(os.Stderr, "Error: --no-config needs a directory or --from-jsonl")
+			os.Exit(2)
+		}
+		cfg, getenv = builtinConfig(), func(string) string { return "" }
+	}
 
 	var setCfg map[string]any
 	if opts.setName != "" {
@@ -276,7 +294,7 @@ func execute(opts execOpts) {
 	finalNotesDir := resolveNotesDir(
 		opts.notesDir,
 		cfgStr(setCfg, "path"),
-		os.Getenv("GRUBBER_NOTES"),
+		getenv("GRUBBER_NOTES"),
 		len(fromJSONL) > 0,
 		os.Getwd,
 	)
@@ -314,7 +332,7 @@ func execute(opts execOpts) {
 	if af := cfgStrSlice(setCfg, "array_fields"); af != nil {
 		arrayFields = af
 	}
-	if env := os.Getenv("GRUBBER_ARRAY_FIELDS"); env != "" {
+	if env := getenv("GRUBBER_ARRAY_FIELDS"); env != "" {
 		arrayFields = splitTrim(env, ",")
 	}
 	if opts.arrayFieldsStr != "" {
@@ -354,7 +372,7 @@ func execute(opts execOpts) {
 	if exts := cfgStrSlice(setCfg, "extensions"); exts != nil {
 		extensions = exts
 	}
-	if env := os.Getenv("GRUBBER_EXTENSIONS"); env != "" {
+	if env := getenv("GRUBBER_EXTENSIONS"); env != "" {
 		extensions = splitTrim(env, ",")
 	}
 	if opts.extensionsStr != "" {
@@ -544,6 +562,9 @@ Options:
       --array-fields=FIELDS Normalize fields to arrays (comma-separated)
       --extensions=EXTS     File extensions to scan (comma-separated, default: all registered)
       --no-fill             Skip nil-filling missing keys (useful for DuckDB)
+      --no-config           Use only the command line: ignore config.yaml and
+                            the GRUBBER_* variables. The directory (or
+                            --from-jsonl) is required. Not with --set.
       --inherit=FIELDS      Only these frontmatter fields reach a note's blocks
                             (comma-separated); --inherit= passes none. Without
                             it every field is inherited. A note without blocks

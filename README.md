@@ -300,6 +300,14 @@ CLI flags > Config set > Environment variables > Config defaults > Built-in defa
 | `GRUBBER_ARRAY_FIELDS` | Fields to normalize to arrays (comma-separated) |
 | `GRUBBER_EXTENSIONS` | File extensions to scan (comma-separated, e.g. `.md,.typ`) |
 
+### Calling grubber from a program
+
+A program that runs grubber to read notes should pass `--no-config`. The call then depends only on its arguments. grubber reads neither `config.yaml` nor the `GRUBBER_*` variables, and the directory (or `--from-jsonl`) must be given. Without the switch, `defaults.filters` is added to the program's own filters and `array_fields` turns single values into lists. `--no-config` together with `--set` ends with exit code 2.
+
+```sh
+grubber extract ~/notes --no-config -b --no-fill --inherit= -f type=ref
+```
+
 ## Options
 
 ```
@@ -315,6 +323,7 @@ CLI flags > Config set > Environment variables > Config defaults > Built-in defa
 -d, --depth N             Limit directory recursion depth (0 = no subdirectories)
     --workers N           Number of parallel workers (default: NumCPU)
     --no-fill             Skip nil-filling missing keys (useful for DuckDB)
+    --no-config           Ignore config.yaml and GRUBBER_* variables (not with --set)
     --inherit FIELDS      Only these frontmatter fields reach a note's blocks (empty = none; default: all)
 -f, --filter EXPR         Filter records (repeatable)
     --from-jsonl PATH    Read records from JSONL file or directory; union into output (repeatable)

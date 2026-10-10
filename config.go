@@ -13,8 +13,20 @@ type Config struct {
 	sets     map[string]any
 }
 
+// NewConfig returns the built-in defaults overlaid with
+// ~/.config/grubber/config.yaml, if present.
 func NewConfig() *Config {
-	c := &Config{
+	c := builtinConfig()
+	home, err := os.UserHomeDir()
+	if err == nil {
+		c.loadConfig(filepath.Join(home, ".config/grubber/config.yaml"))
+	}
+	return c
+}
+
+// builtinConfig is the config without any file: what --no-config runs on.
+func builtinConfig() *Config {
+	return &Config{
 		defaults: map[string]any{
 			"blocks_only":  false,
 			"array_fields": []any{},
@@ -22,11 +34,6 @@ func NewConfig() *Config {
 		},
 		sets: map[string]any{},
 	}
-	home, err := os.UserHomeDir()
-	if err == nil {
-		c.loadConfig(filepath.Join(home, ".config/grubber/config.yaml"))
-	}
-	return c
 }
 
 func (c *Config) loadConfig(path string) {
