@@ -316,7 +316,7 @@ grubber extract ~/notes --no-config -b --no-fill --inherit= -f type=ref
     --format FORMAT       json (default), tsv, or jsonl
 -b, --blocks-only         Only extract YAML blocks
 -m, --frontmatter-only    Only extract frontmatter
--a, --all                 Extract everything, override config defaults
+-a, --all                 Extract frontmatter and blocks (undoes -b/-m, also from config)
     --array-fields FIELDS Normalize fields to arrays (splits comma-separated values)
     --extensions EXTS     File extensions to scan (comma-separated, default: all registered)
     --mmd                 Also read MultiMarkdown metadata headers

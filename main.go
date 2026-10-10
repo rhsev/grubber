@@ -155,8 +155,8 @@ func runExtract(args []string, pathOverride string) {
 	fs.BoolVar(&blocksOnly, "blocks-only", false, "Only extract YAML blocks")
 	fs.BoolVar(&frontmatterOnly, "m", false, "Only extract frontmatter")
 	fs.BoolVar(&frontmatterOnly, "frontmatter-only", false, "Only extract frontmatter")
-	fs.BoolVar(&allFlag, "a", false, "Extract everything, override config defaults")
-	fs.BoolVar(&allFlag, "all", false, "Extract everything, override config defaults")
+	fs.BoolVar(&allFlag, "a", false, "Extract frontmatter and blocks (undo -b/-m, also from config)")
+	fs.BoolVar(&allFlag, "all", false, "Extract frontmatter and blocks (undo -b/-m, also from config)")
 	fs.BoolVar(&useMmd, "mmd", false, "Also parse MultiMarkdown metadata headers")
 	fs.BoolVar(&noFill, "no-fill", false, "Skip nil-filling missing keys (faster for duckdb)")
 	fs.BoolVar(&noConfig, "no-config", false, "Ignore config.yaml and GRUBBER_* variables")
@@ -555,7 +555,8 @@ Options:
       --format=FORMAT       Output format: json (default), tsv, or jsonl
   -b, --blocks-only         Only extract YAML blocks, ignore frontmatter-only notes
   -m, --frontmatter-only    Only extract frontmatter, ignore YAML blocks
-  -a, --all                 Extract everything, override config defaults
+  -a, --all                 Extract frontmatter and blocks. Undoes -b and -m,
+                            also when they come from the config.
       --mmd                 Also parse MultiMarkdown metadata headers
   -d, --depth=N             Limit directory recursion depth (0 = no subdirectories)
       --workers=N           Number of parallel workers (default: NumCPU)
