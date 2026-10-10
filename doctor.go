@@ -507,12 +507,13 @@ func runDoctor(args []string) {
 
 	dir := resolveNotesDir(fs.Arg(0), cfgStr(setCfg, "path"), os.Getenv("GRUBBER_NOTES"), len(fromJSONL) > 0, os.Getwd)
 
+	// Same order as extract: config default → env → set → CLI.
 	extensions := cfg.DefaultExtensions()
-	if exts := cfgStrSlice(setCfg, "extensions"); exts != nil {
-		extensions = exts
-	}
 	if env := os.Getenv("GRUBBER_EXTENSIONS"); env != "" {
 		extensions = splitTrim(env, ",")
+	}
+	if exts := cfgStrSlice(setCfg, "extensions"); exts != nil {
+		extensions = exts
 	}
 	if extensionsStr != "" {
 		extensions = splitTrim(extensionsStr, ",")

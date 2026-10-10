@@ -162,3 +162,39 @@ func TestNoConfigRequiresDirectory(t *testing.T) {
 		t.Errorf("unexpected output %q", r.stdout)
 	}
 }
+
+// A set named with --set outranks the environment for every setting, as its
+// path outranks $GRUBBER_NOTES; the environment still applies without a set.
+func TestSetOutranksEnvironment(t *testing.T) {
+	root := t.TempDir()
+	notes := filepath.Join(root, "notes")
+	writeFile(t, filepath.Join(notes, "a.md"), "---\ntitle: A\nkeywords: x, y\n---\n")
+	writeFile(t, filepath.Join(notes, "b.typ"), "/*\n---\ntitle: B\n---\n*/\n")
+	home := filepath.Join(root, "home")
+	writeFile(t, filepath.Join(home, ".config/grubber/config.yaml"), `sets:
+  s:
+    path: `+notes+`
+    array_fields: [keywords]
+    extensions: [.md]
+`)
+	env := []string{"GRUBBER_ARRAY_FIELDS=title", "GRUBBER_EXTENSIONS=.typ"}
+
+	withSet := runGrubber(t, home, root, env, "extract", "--set", "s", "--format", "jsonl")
+	if withSet.code != 0 {
+		t.Fatalf("exit %d: %s", withSet.code, withSet.stderr)
+	}
+	if !strings.Contains(withSet.stdout, `"keywords":["x","y"]`) || !strings.Contains(withSet.stdout, `"title":"A"`) {
+		t.Errorf("set's array_fields did not win over the environment:\n%s", withSet.stdout)
+	}
+	if strings.Contains(withSet.stdout, `"B"`) {
+		t.Errorf("set's extensions did not win over the environment:\n%s", withSet.stdout)
+	}
+
+	noSet := runGrubber(t, home, root, env, "extract", notes, "--format", "jsonl")
+	if noSet.code != 0 {
+		t.Fatalf("exit %d: %s", noSet.code, noSet.stderr)
+	}
+	if strings.Contains(noSet.stdout, `"A"`) {
+		t.Errorf("without a set, GRUBBER_EXTENSIONS should limit the scan to .typ:\n%s", noSet.stdout)
+	}
+}

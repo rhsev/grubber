@@ -327,13 +327,15 @@ func execute(opts execOpts) {
 		depth = &opts.depth
 	}
 
-	// array_fields: config default → set → env → CLI
+	// array_fields: config default → env → set → CLI. A set named on the
+	// command line is a deliberate choice and outranks the environment, the
+	// same way its path outranks $GRUBBER_NOTES.
 	arrayFields := cfg.DefaultArrayFields()
-	if af := cfgStrSlice(setCfg, "array_fields"); af != nil {
-		arrayFields = af
-	}
 	if env := getenv("GRUBBER_ARRAY_FIELDS"); env != "" {
 		arrayFields = splitTrim(env, ",")
+	}
+	if af := cfgStrSlice(setCfg, "array_fields"); af != nil {
+		arrayFields = af
 	}
 	if opts.arrayFieldsStr != "" {
 		arrayFields = splitTrim(opts.arrayFieldsStr, ",")
@@ -367,13 +369,14 @@ func execute(opts execOpts) {
 
 	inherit := resolveInherit(cfg.DefaultInherit(), setCfg, opts.inheritSet, opts.inheritStr)
 
-	// extensions: config default → set → env → CLI (nil = all registered parsers)
+	// extensions: config default → env → set → CLI (nil = all registered
+	// parsers), the same order as array_fields.
 	extensions := cfg.DefaultExtensions()
-	if exts := cfgStrSlice(setCfg, "extensions"); exts != nil {
-		extensions = exts
-	}
 	if env := getenv("GRUBBER_EXTENSIONS"); env != "" {
 		extensions = splitTrim(env, ",")
+	}
+	if exts := cfgStrSlice(setCfg, "extensions"); exts != nil {
+		extensions = exts
 	}
 	if opts.extensionsStr != "" {
 		extensions = splitTrim(opts.extensionsStr, ",")
@@ -534,8 +537,8 @@ COMMANDS:
 
 EXAMPLES:
   grubber extract ~/notes -o data.json
-  grubber extract --set vertrag --format tsv
-  grubber extract -f "type=vertrag" -f "due^2025-02"
+  grubber extract --set contracts --format tsv
+  grubber extract -f "type=contract" -f "due^2025-02"
 
 CONFIG:
   ~/.config/grubber/config.yaml
@@ -543,6 +546,8 @@ CONFIG:
 ENVIRONMENT:
   GRUBBER_NOTES         Default notes directory
   GRUBBER_ARRAY_FIELDS  Default fields to normalize (comma-separated)
+  GRUBBER_EXTENSIONS    Default file extensions to scan (comma-separated)
+  A config set chosen with --set outranks these variables.
 `, version)
 }
 
@@ -573,8 +578,8 @@ Options:
                             so a filter on a header field needs it inherited.
   -f, --filter=EXPR         Filter records (can be used multiple times)
                             Operators: = (equals), ~ (contains), ^ (starts with), ! (not equals)
-                            Examples: type=vertrag, due^2025-02, name~versicher
-      --from-jsonl=PATH    Read records from an JSONL file (or directory of *.jsonl files)
+                            Examples: type=contract, due^2025-02, name~insur
+      --from-jsonl=PATH    Read records from a JSONL file (or directory of *.jsonl files)
                             and union them into the output. Repeatable. The notes directory
                             becomes optional when at least one --from-jsonl is given.
       --merge-on=KEYS      Merge --from-jsonl records into scanned records sharing the same
