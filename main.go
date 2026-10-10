@@ -4,15 +4,26 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"runtime/debug"
 	"strings"
 )
 
 // version is stamped at build time from the tag: the Makefile passes
-// -ldflags "-X main.version=$(git describe --tags --dirty)". A plain
-// `go build` cannot know the version, so it says so rather than carrying a
-// literal that would drift from the tag the way this one did for two
-// releases.
+// -ldflags "-X main.version=$(git describe --tags --dirty)", rather than
+// carrying a literal that would drift from the tag the way this one did for
+// two releases. `go install …@v0.19.1` passes no flags, so init falls back to
+// the module version Go records in the binary; only a build without either
+// says "dev".
 var version = "dev"
+
+func init() {
+	if version != "dev" {
+		return
+	}
+	if bi, ok := debug.ReadBuildInfo(); ok && bi.Main.Version != "" && bi.Main.Version != "(devel)" {
+		version = strings.TrimPrefix(bi.Main.Version, "v")
+	}
+}
 
 type multiFlag []string
 

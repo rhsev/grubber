@@ -1,4 +1,4 @@
-module grubber
+module github.com/rhsev/grubber
 
 go 1.27
 

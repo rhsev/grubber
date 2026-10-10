@@ -64,14 +64,20 @@ Frontmatter and YAML block are merged into one flat record, and grubber adds the
 
 ## Installation
 
-Download a pre-built binary for macOS (Apple Silicon or Intel) or Linux (x86-64 or arm64) from [Releases](https://github.com/rhsev/grubber/releases), or build from source:
+Download a pre-built binary for macOS (Apple Silicon or Intel) or Linux (x86-64 or arm64) from [Releases](https://github.com/rhsev/grubber/releases), or install with Go:
+
+```sh
+go install github.com/rhsev/grubber@latest
+```
+
+Or build from a checkout:
 
 ```sh
 make install          # builds and copies to /usr/local/bin
 make install PREFIX=~/.local
 ```
 
-Requires Go 1.27+.
+Building needs Go 1.27+.
 
 ### Quick start
 
