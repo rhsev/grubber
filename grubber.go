@@ -186,7 +186,8 @@ func (g *Grubber) processFiles(files []string) <-chan indexedResult {
 
 // collectRecords gathers the scan-path and JSONL-source records separately,
 // applying array normalization and the per-record filter (nil while
-// --merge-on is active; see postFilter).
+// --merge-on or --explode is active; see postFilter). Explode and merge run
+// afterwards, in mergedRecords.
 func (g *Grubber) collectRecords(files []string) (scanned, jsonl []Record, err error) {
 	if g.notesDir != "" {
 		if files == nil {
@@ -230,8 +231,8 @@ func (g *Grubber) collectRecords(files []string) (scanned, jsonl []Record, err e
 	return
 }
 
-// mergedRecords runs collect → merge → post-filter, the shared front half of
-// Extract and the buffered StreamJSONL path.
+// mergedRecords runs collect → explode → merge → post-filter, the shared
+// front half of Extract and the buffered StreamJSONL path.
 func (g *Grubber) mergedRecords(files []string) ([]Record, error) {
 	scanned, jsonl, err := g.collectRecords(files)
 	if err != nil {
@@ -307,8 +308,9 @@ func (g *Grubber) Extract(files []string) (records []Record, keys []string, err 
 }
 
 // StreamJSONL writes records as newline-delimited JSON as they are processed,
-// without buffering all records in memory first. With --merge-on, merging
-// needs the full record set, so that path buffers like Extract does.
+// without buffering all records in memory first. With --merge-on or
+// --explode, records go through mergedRecords (merging and the post-filter
+// need the full record set), so that path buffers like Extract does.
 func (g *Grubber) StreamJSONL(w io.Writer) error {
 	enc := newRecordEncoder(w)
 
