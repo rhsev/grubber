@@ -1,4 +1,4 @@
-# Data Structure Comparison: Dataview vs Grubber
+# Data Structure Comparison: Dataview vs grubber
 
 ## How data is stored
 
@@ -10,7 +10,7 @@ due:: 2026-03-01
 [assignee:: Anna]  ← can appear mid-sentence
 ```
 
-Grubber uses YAML code blocks:
+grubber uses YAML code blocks:
 
 ```yaml
 type: project
@@ -35,18 +35,18 @@ Disadvantages:
 - One record per note. No way to store multiple records
 - Proprietary syntax. Only Dataview can parse `key:: value`
 - Mixed with prose. Extracting fields outside Obsidian requires a custom parser
-- Two syntaxes for the same thing (`key::` vs `[key::]`) adds ambiguity
+- Two syntaxes for the same thing (`key::` vs `[key::]`) add ambiguity
 - No schema validation, no defined data types
 
 
-## Grubber YAML blocks
+## grubber YAML blocks
 
 Advantages:
 - Standard format. Every programming language has a YAML parser
 - Nesting, lists, multi-line values, complex structures
 - Multiple records per note (e.g. several items in one inventory note)
 - Clean separation of data and prose
-- Same format as frontmatter — one syntax for everything
+- Same format as frontmatter, so one syntax covers both
 - Tool-independent. Works with jq, yq, Python, Ruby, or any JSON consumer
 - Portable. The data is readable and usable without grubber
 
@@ -70,4 +70,4 @@ YAML blocks work well when:
 - Data has structure (lists, nesting)
 - A note contains multiple records
 - You need the data outside Obsidian
-- You want a standard format that outlives any tool
+- You want a standard format that does not depend on one tool
