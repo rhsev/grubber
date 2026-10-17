@@ -410,7 +410,6 @@ func execute(opts execOpts) {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
-		defer out.Close()
 	} else {
 		out = os.Stdout
 	}
@@ -421,6 +420,7 @@ func execute(opts execOpts) {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
+		closeOutput(out)
 		return
 	}
 
@@ -449,9 +449,23 @@ func execute(opts execOpts) {
 		fmt.Fprintf(os.Stderr, "Error writing output: %v\n", err)
 		os.Exit(1)
 	}
+	closeOutput(out)
 
 	if opts.outputFile != "" {
 		fmt.Fprintf(os.Stderr, "Extracted %d records to %s\n", len(records), opts.outputFile)
+	}
+}
+
+// closeOutput closes an -o file and fails the run if that fails. On a network
+// share a write error can surface only at close, and a deferred Close would
+// drop it while grubber reports success.
+func closeOutput(out *os.File) {
+	if out == os.Stdout {
+		return
+	}
+	if err := out.Close(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error writing output: %v\n", err)
+		os.Exit(1)
 	}
 }
 
