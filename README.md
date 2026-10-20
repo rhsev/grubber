@@ -42,6 +42,7 @@ Output (`grubber extract examples/project-alpha.md`):
 ```json
 [
   {
+    "_line": 11,
     "_mtime": "2026-02-19T16:12:37Z",
     "_note_file": "/home/you/grubber/examples/project-alpha.md",
     "created": "2025-01-10",
@@ -60,7 +61,7 @@ Output (`grubber extract examples/project-alpha.md`):
 ]
 ```
 
-Frontmatter and YAML block are merged into one flat record, and grubber adds the file's path and modification time (`_note_file`, `_mtime`). The prose stays in Markdown, untouched. Run this across a directory of 1,000 notes and you get a single JSON file with all your records.
+Frontmatter and YAML block are merged into one flat record, and grubber adds the file's path and modification time (`_note_file`, `_mtime`). A record from a YAML block also gets `_line`, the line of its opening fence, so `_note_file` and `_line` together say where the block stands. The prose stays in Markdown, untouched; `jot prose --line` reads the prose of one entry. Run this across a directory of 1,000 notes and you get a single JSON file with all your records.
 
 ## Installation
 

@@ -5,6 +5,11 @@ they aren't lost. Each entry should be implementable from its own description.
 
 ## `block_marker`: opt-in harvesting of marked data blocks
 
+**Rejected (2026-10-21).** ` ```yml ` already marks an example: grubber reads
+only ` ```yaml `, and the tools around it agreed to read nothing else. A data
+mode would restrict what counts as data instead of keeping one way to say
+"not data".
+
 **Problem.** grubber harvests *every* ` ```yaml ` block as a record
 (`parser_md.go`). In notes that also contain illustrative YAML (docker-compose
 snippets, config examples, tutorials), those blocks get pulled in as data too.

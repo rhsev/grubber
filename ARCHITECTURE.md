@@ -22,7 +22,7 @@ grubber is about 2,900 lines of Go across thirteen files (tests not counted):
 
 1. Find all files with registered extensions (default: `.md`, `.typ`, `.vcf`) recursively, hidden dirs skipped
 2. Parse each file in parallel: dispatch to the matching FileParser by extension, extract metadata and data records
-3. Merge metadata and records into flat records, with frontmatter fields inherited into each block (`--inherit` limits which); add `_note_file` and `_mtime`
+3. Merge metadata and records into flat records, with frontmatter fields inherited into each block (`--inherit` limits which); add `_note_file` and `_mtime`, and `_line` (the opening fence's line) to a record from a YAML block
 4. Apply filters, emit JSON / TSV / JSONL
 
 Optionally, JSONL merge sources are read and added to the result set (see below).

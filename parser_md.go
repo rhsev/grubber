@@ -127,10 +127,14 @@ func parseYAMLBlocks(body []byte, baseLine int, d *Diagnostics) []Record {
 	matches := yamlBlockRe.FindAllSubmatchIndex(body, -1)
 	records := make([]Record, 0, len(matches))
 	for _, m := range matches {
+		line := baseLine + bytes.Count(body[:m[0]], newline) + 1
 		if d != nil {
-			d.setLine(baseLine + bytes.Count(body[:m[0]], newline) + 1)
+			d.setLine(line)
 		}
 		if r := parseYAMLString(body[m[2]:m[3]], d); len(r) > 0 {
+			// The opening fence's line: with _note_file the block's address,
+			// for tools that work on one entry (jot prose --line).
+			r["_line"] = line
 			records = append(records, r)
 		}
 	}

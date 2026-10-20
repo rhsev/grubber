@@ -61,7 +61,7 @@ func TestInheritAbsentPassesEveryField(t *testing.T) {
 
 func TestInheritEmptyPassesNone(t *testing.T) {
 	recs := extractNote(t, inheritNote, false, []string{})
-	want := []string{"_mtime", "_note_file", "filename", "id"}
+	want := []string{"_line", "_mtime", "_note_file", "filename", "id"}
 	if got := fields(recs[0]); !slices.Equal(got, want) {
 		t.Errorf("--inherit= : got fields %v, want %v (own fields plus provenance)", got, want)
 	}
