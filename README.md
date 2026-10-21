@@ -61,7 +61,7 @@ Output (`grubber extract examples/project-alpha.md`):
 ]
 ```
 
-Frontmatter and YAML block are merged into one flat record, and grubber adds the file's path and modification time (`_note_file`, `_mtime`). A record from a YAML block also gets `_line`, the line of its opening fence, so `_note_file` and `_line` together say where the block stands. The prose stays in Markdown, untouched; `commenter --line` reads the prose of one entry (see [commenter](#commenter)). Run this across a directory of 1,000 notes and you get a single JSON file with all your records.
+Frontmatter and YAML block are merged into one flat record, and grubber adds the file's path and modification time (`_note_file`, `_mtime`). A record from a YAML block also gets `_line`, the line of its opening fence, so `_note_file` and `_line` together say where the block stands. The prose stays in Markdown, untouched. Run this across a directory of 1,000 notes and you get a single JSON file with all your records.
 
 ## Installation
 
@@ -69,13 +69,12 @@ Download a pre-built binary for macOS (Apple Silicon or Intel) or Linux (x86-64 
 
 ```sh
 go install github.com/rhsev/grubber@latest
-go install github.com/rhsev/grubber/cmd/commenter@latest
 ```
 
 Or build from a checkout:
 
 ```sh
-make install          # builds grubber and commenter, copies both to /usr/local/bin
+make install          # builds and copies to /usr/local/bin
 make install PREFIX=~/.local
 ```
 
@@ -214,58 +213,6 @@ grubber extract ~/notes --format jsonl --no-fill | duckdb -c "SELECT name, statu
 # miller: TSV processing
 grubber extract ~/notes --format tsv | mlr --tsv sort-by -nr amount
 ```
-
-## commenter
-
-grubber reads the YAML blocks and leaves the text around them alone.
-`commenter` is the second command in this repository. It reads the prose of
-one entry, or replaces it.
-
-```sh
-commenter note.md --line 42                     # the entry whose block opens at line 42
-commenter note.md --where id=210322647 --where binder=safari
-printf 'New text' | commenter note.md --line 42 --if-hash "$hash" --set -
-```
-
-`--line` takes the `_line` of a grubber record, so a record from `grubber
-extract` leads straight to its entry. Reading prints one JSON line per entry:
-
-```json
-{"file":"/notes/collections/binder_safari.md","line":42,"end":46,"heading":"waterhole.jpg","prose":"At dawn.","hash":"9f2c…"}
-```
-
-The rules:
-
-- A data block opens with a ` ```yaml ` line and closes with a ` ``` ` line.
-  ` ```yml ` and every other fence language is an example and never data.
-- The prose is the text between the block and the nearest boundary above it.
-  A boundary is a heading of any level, the end of another data block, a line
-  of three or more `-`, the end of the frontmatter, or the start of the file.
-- The entry's heading is the nearest heading above the block.
-- Text after a block belongs to no entry. If another block follows without a
-  boundary, the text is that block's prose.
-
-The cases are in `entry/testdata/entries`, each note with a `.jsonl` file that
-lists its entries. Go programs use the rules through the package
-`github.com/rhsev/grubber/entry`.
-
-`--where` compares field values as text, in NFC, and matches a list when one
-of its items matches. `--set TEXT` (or `-` for stdin) replaces the prose of
-exactly one entry; with `--all` it replaces it in every match. A text that
-holds a heading, a `---` line or a ` ```yaml ` block is refused, because it
-would change where entries start. With `--if-hash`, commenter writes nothing
-if the note changed since that hash was read.
-
-commenter overwrites the note in place, so it stays the same file: a bookmark
-to it, its extended attributes, creation date, flags, ACLs and hard links stay.
-It first writes the new content to `.<name>.journal` next to the note and
-removes that file when the note is written. If a write stops halfway, the
-journal holds the complete new content, and commenter refuses to write that
-note again until the journal is gone.
-
-Exit codes: 2 nothing matches, 3 several entries match without `--all`, 4 the
-note changed or a journal is left, 64 the call is wrong, 1 reading or writing
-failed.
 
 ## JSONL sources (`--from-jsonl`)
 
@@ -488,6 +435,10 @@ happened. Quoting is a content decision, so `--fix` leaves them alone.
   note, blocks always keep document order.
 
 ## See also
+
+Programs built on grubber that show or edit the text around a block can use
+`commenter`, a small companion command in this repository. It is described in
+[docs/COMMENTER.md](docs/COMMENTER.md).
 
 [matterbase](https://github.com/rhsev/matterbase) is a terminal UI built on top of grubber. Its [ARCHITECTURE.md](https://github.com/rhsev/matterbase/blob/main/ARCHITECTURE.md) also covers grubber's role in the overall stack.
 

@@ -129,4 +129,4 @@ it is replaced) and the in-place write with its journal. `cmd/commenter/` is
 the command on top of it. Both stay out of grubber's own code: grubber reads
 and never writes, and the root package keeps `go install
 github.com/rhsev/grubber@latest` working. The cases are in
-`entry/testdata/entries`.
+`entry/testdata/entries`; the command is described in `docs/COMMENTER.md`.
