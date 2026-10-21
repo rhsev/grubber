@@ -133,7 +133,7 @@ func parseYAMLBlocks(body []byte, baseLine int, d *Diagnostics) []Record {
 		}
 		if r := parseYAMLString(body[m[2]:m[3]], d); len(r) > 0 {
 			// The opening fence's line: with _note_file the block's address,
-			// for tools that work on one entry (jot prose --line).
+			// for tools that work on one entry (commenter --line).
 			r["_line"] = line
 			records = append(records, r)
 		}

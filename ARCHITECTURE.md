@@ -121,3 +121,12 @@ implementation.
 ~28 ms for 2,000 files on Apple Silicon, I/O-bound. The worker pool (one goroutine per CPU by default) helps on larger corpora; at this scale the scan is fast enough that no index is warranted.
 
 See [matterbase ARCHITECTURE.md](https://github.com/rhsev/matterbase/blob/main/ARCHITECTURE.md) for grubber's role in the broader stack.
+
+## commenter and package entry
+
+`entry/` holds the rules for an entry's prose (where it starts and ends, how
+it is replaced) and the in-place write with its journal. `cmd/commenter/` is
+the command on top of it. Both stay out of grubber's own code: grubber reads
+and never writes, and the root package keeps `go install
+github.com/rhsev/grubber@latest` working. The cases are in
+`entry/testdata/entries`.

@@ -2,3 +2,5 @@
 grubber
 grubber-*
 *.dwarf
+/commenter
+/commenter-*

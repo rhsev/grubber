@@ -4,7 +4,7 @@ import "testing"
 
 // _line is the 1-based line of a block's opening fence, counted in the whole
 // file, frontmatter included. With _note_file it is the block's address for
-// tools that work on one entry (jot prose --line).
+// tools that work on one entry (commenter --line).
 func TestLineOfEachBlock(t *testing.T) {
 	note := "---\r\ntitle: x\r\n---\r\n\r\n### A\r\n```yaml\r\nid: 1\r\n```\r\n\r\n```yaml\r\nid: 2\r\n```\r\n"
 	recs := extractNote(t, note, false, nil)
