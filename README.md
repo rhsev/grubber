@@ -436,9 +436,12 @@ happened. Quoting is a content decision, so `--fix` leaves them alone.
 
 ## See also
 
-Programs built on grubber that show or edit the text around a block can use
-`commenter`, a small companion command in this repository. It is described in
-[docs/COMMENTER.md](docs/COMMENTER.md).
+Programs built on grubber that show or edit the text around a block use
+`commenter`, a small companion command in this repository, or the Go package
+`entry` it is built on. Both follow the same rules. grubber on its own does not
+need either. [docs/COMMENTER.md](docs/COMMENTER.md) describes them. There is no
+release binary. `go install github.com/rhsev/grubber/cmd/commenter@latest`
+builds it.
 
 [matterbase](https://github.com/rhsev/matterbase) is a terminal UI built on top of grubber. Its [ARCHITECTURE.md](https://github.com/rhsev/matterbase/blob/main/ARCHITECTURE.md) also covers grubber's role in the overall stack.
 
