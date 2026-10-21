@@ -11,7 +11,8 @@ LDFLAGS := -X main.version=$(VERSION)
 .PHONY: build install uninstall test link unlink release clean benchmark
 
 # Two commands: grubber (reads the blocks) and commenter (reads and replaces
-# an entry's prose, package entry).
+# an entry's prose, package entry). Only grubber ships as a release binary:
+# commenter is a companion for programs built on grubber, built from source.
 build:
 	go build -ldflags="$(LDFLAGS)" -o grubber .
 	go build -ldflags="$(LDFLAGS)" -o commenter ./cmd/commenter
@@ -21,10 +22,6 @@ release:
 	GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w $(LDFLAGS)" -o grubber-macos-amd64 .
 	GOOS=linux GOARCH=amd64 go build -ldflags="-s -w $(LDFLAGS)" -o grubber-linux-amd64 .
 	GOOS=linux GOARCH=arm64 go build -ldflags="-s -w $(LDFLAGS)" -o grubber-linux-arm64 .
-	GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w $(LDFLAGS)" -o commenter-macos-arm64 ./cmd/commenter
-	GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w $(LDFLAGS)" -o commenter-macos-amd64 ./cmd/commenter
-	GOOS=linux GOARCH=amd64 go build -ldflags="-s -w $(LDFLAGS)" -o commenter-linux-amd64 ./cmd/commenter
-	GOOS=linux GOARCH=arm64 go build -ldflags="-s -w $(LDFLAGS)" -o commenter-linux-arm64 ./cmd/commenter
 
 # Link once, then never again: rebuilding is deploying. A stale copy fails silently,
 # a dangling link fails at the next call. Convention: ../BUILD.md.
@@ -53,7 +50,7 @@ test:
 
 clean:
 	rm -f grubber grubber-macos-arm64 grubber-macos-amd64 grubber-linux-amd64 grubber-linux-arm64
-	rm -f commenter commenter-macos-arm64 commenter-macos-amd64 commenter-linux-amd64 commenter-linux-arm64
+	rm -f commenter
 
 benchmark:
 	go build -o grubber . && hyperfine --warmup 3 './grubber extract $(GRUBBER_NOTES) -o /dev/null'
