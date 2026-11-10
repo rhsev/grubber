@@ -150,3 +150,14 @@ func TestVcardEscapedSeparators(t *testing.T) {
 		t.Errorf("adr = %q, want %q", r["adr"], want)
 	}
 }
+
+func TestSplitVcardLineDotInParameter(t *testing.T) {
+	name, value, ok := splitVcardLine("EMAIL;TYPE=a.b:max@example.com")
+	if !ok || name != "EMAIL" || value != "max@example.com" {
+		t.Errorf("got %q %q %v", name, value, ok)
+	}
+	name, _, _ = splitVcardLine("item1.EMAIL;type=INTERNET:m@example.com")
+	if name != "EMAIL" {
+		t.Errorf("group prefix: got %q", name)
+	}
+}

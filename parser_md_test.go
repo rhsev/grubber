@@ -223,3 +223,53 @@ func TestMdExtractBOM(t *testing.T) {
 		t.Errorf("BOM-prefixed frontmatter: got %v", fm)
 	}
 }
+
+// An empty block closes at its own fence. It used to reach for the next
+// closing fence below and turn the prose in between into a record.
+func TestParseYAMLBlocksEmptyBlockStaysEmpty(t *testing.T) {
+	body := "```yaml\n```\n\nText with colon: yes\n\n```sh\necho: hi\n```\n\n```yaml\nid: 2\n```\n"
+	records := parseYAMLBlocks([]byte(body), 0, nil)
+	if len(records) != 1 {
+		t.Fatalf("want the one real block, got %v", records)
+	}
+	if records[0]["id"] != 2 || records[0]["_line"] != 10 {
+		t.Errorf("got %v", records[0])
+	}
+	d := &Diagnostics{}
+	parseYAMLBlocks([]byte(body), 0, d)
+	if len(d.findings) != 0 {
+		t.Errorf("an empty block is no finding, got %v", d.findings)
+	}
+}
+
+// A note that is frontmatter only may end with the closing --- and no newline.
+func TestMdExtractFrontmatterAtEndOfFile(t *testing.T) {
+	p := &mdParser{}
+	for _, data := range []string{"---\ntitle: x\n---", "---\r\ntitle: x\r\n---", "---\r\ntitle: x\r\n---\r"} {
+		fm, blocks, err := p.Extract("f.md", []byte(data), ParseOpts{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if fm["title"] != "x" || len(blocks) != 0 {
+			t.Errorf("%q: frontmatter %v, blocks %v", data, fm, blocks)
+		}
+	}
+	// A longer line that only starts with --- does not close the frontmatter.
+	if fm, _, _ := p.Extract("f.md", []byte("---\ntitle: x\n---more"), ParseOpts{}); fm != nil {
+		t.Errorf("---more must not close the frontmatter, got %v", fm)
+	}
+}
+
+// A timestamp with a time of day keeps it; a plain date is still YYYY-MM-DD.
+func TestParseYAMLStringTimestampKeepsTime(t *testing.T) {
+	r := parseYAMLString([]byte("a: 2026-11-10 14:30:00\nb: 2026-11-10T14:30:00+01:00\nc: 2026-11-10\nd: [2026-11-10 08:00:00]\ne: \"2026-11-10 14:30:00\"\n"), nil)
+	if r["a"] != "2026-11-10 14:30:00" || r["b"] != "2026-11-10T14:30:00+01:00" || r["e"] != "2026-11-10 14:30:00" {
+		t.Errorf("time of day lost: %v", r)
+	}
+	if r["c"] != "2026-11-10" {
+		t.Errorf("date: got %v", r["c"])
+	}
+	if arr, ok := r["d"].([]any); !ok || len(arr) != 1 || arr[0] != "2026-11-10 08:00:00" {
+		t.Errorf("timestamp in a list: got %v", r["d"])
+	}
+}

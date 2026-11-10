@@ -15,11 +15,15 @@ func init() {
 }
 
 var (
-	frontmatterRe = regexp.MustCompile("(?s)^---\r?\n(.*?)\r?\n---\r?\n")
+	// The closing --- may be the file's last line without a newline after it:
+	// a note that is frontmatter only often ends that way.
+	frontmatterRe = regexp.MustCompile("(?s)^---\r?\n(.*?)\r?\n---\r?(?:\n|\\z)")
 	// Fences must be fence-only lines, but may be indented (e.g. blocks
 	// inside list items) — an indented closing fence must still terminate
-	// the block, or the match runs on into unrelated prose.
-	yamlBlockRe = regexp.MustCompile("(?ms)^[ \t]*```yaml[ \t]*\r?$\n(.*?)\r?\n[ \t]*```[ \t]*\r?$")
+	// the block, or the match runs on into unrelated prose. The content ends
+	// at the start of the closing fence's line, so it may be empty: an empty
+	// block closes at once instead of reaching for the next fence below it.
+	yamlBlockRe = regexp.MustCompile("(?ms)^[ \t]*```yaml[ \t]*\r?\n(.*?)^[ \t]*```[ \t]*\r?$")
 	// Opening fences alone, for doctor: an opener that is not part of a
 	// yamlBlockRe match has no closing fence and its block is ignored.
 	yamlFenceOpenRe = regexp.MustCompile("(?m)^[ \t]*```yaml[ \t]*\r?$")
@@ -80,6 +84,7 @@ func parseYAMLString(content []byte, d *Diagnostics) Record {
 	for i := 0; i+1 < len(doc.Content); i += 2 {
 		key := doc.Content[i].Value
 		var val any
+		keepTimeOfDay(doc.Content[i+1])
 		doc.Content[i+1].Decode(&val) //nolint:errcheck
 		if d != nil {
 			if seen[key] {
@@ -92,6 +97,29 @@ func parseYAMLString(content []byte, d *Diagnostics) Record {
 		result[key] = normalizeValue(val)
 	}
 	return result
+}
+
+// keepTimeOfDay makes a timestamp with a time of day decode as the text the
+// note holds. Decoded as a time it would go out as its date alone and lose
+// the time; a plain date still decodes as a time and becomes YYYY-MM-DD.
+func keepTimeOfDay(node *yaml.Node) {
+	switch node.Kind {
+	case yaml.ScalarNode:
+		v := node.Value
+		// Cheap test first: resolving the tag costs as much as decoding.
+		if node.Style == 0 && len(v) > 10 && v[0] >= '0' && v[0] <= '9' &&
+			strings.IndexByte(v, ':') > 0 && node.ShortTag() == "!!timestamp" {
+			node.Tag = "!!str"
+		}
+	case yaml.SequenceNode:
+		for _, c := range node.Content {
+			keepTimeOfDay(c)
+		}
+	case yaml.MappingNode:
+		for i := 1; i < len(node.Content); i += 2 {
+			keepTimeOfDay(node.Content[i])
+		}
+	}
 }
 
 func parseYAMLLenient(content []byte) Record {

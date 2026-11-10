@@ -1,5 +1,7 @@
 package main
 
+import "sort"
+
 // ParseOpts carries per-parse flags so parsers stay decoupled from Grubber.
 type ParseOpts struct {
 	UseMmd          bool
@@ -29,5 +31,6 @@ func registeredExtensions() []string {
 	for ext := range parsers {
 		exts = append(exts, ext)
 	}
+	sort.Strings(exts)
 	return exts
 }

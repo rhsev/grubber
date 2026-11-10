@@ -134,12 +134,14 @@ func splitVcardLine(line string) (name, value string, ok bool) {
 	if colon <= 0 {
 		return "", "", false
 	}
+	// Parameters go first: a dot in one of them (TYPE=a.b) is no group
+	// separator.
 	namePart := line[:colon]
-	if dot := strings.IndexByte(namePart, '.'); dot >= 0 {
-		namePart = namePart[dot+1:]
-	}
 	if semi := strings.IndexByte(namePart, ';'); semi >= 0 {
 		namePart = namePart[:semi]
+	}
+	if dot := strings.IndexByte(namePart, '.'); dot >= 0 {
+		namePart = namePart[dot+1:]
 	}
 	return strings.ToUpper(strings.TrimSpace(namePart)), line[colon+1:], true
 }

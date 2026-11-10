@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -271,17 +272,7 @@ func (g *Grubber) Extract(files []string) (records []Record, keys []string, err 
 	}
 
 	if !g.noFill {
-		allKeys := make(map[string]struct{})
-		for _, r := range records {
-			for k := range r {
-				allKeys[k] = struct{}{}
-			}
-		}
-		keys = make([]string, 0, len(allKeys))
-		for k := range allKeys {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
+		keys = recordKeys(records)
 
 		for i, r := range records {
 			if len(r) < len(keys) {
@@ -311,6 +302,36 @@ func (g *Grubber) Extract(files []string) (records []Record, keys []string, err 
 // without buffering all records in memory first. With --merge-on or
 // --explode, records go through mergedRecords (merging and the post-filter
 // need the full record set), so that path buffers like Extract does.
+// recordKeys returns every field name that occurs in records, sorted.
+func recordKeys(records []Record) []string {
+	allKeys := make(map[string]struct{})
+	for _, r := range records {
+		for k := range r {
+			allKeys[k] = struct{}{}
+		}
+	}
+	keys := make([]string, 0, len(allKeys))
+	for k := range allKeys {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// valueString is the text form of a field value, used wherever values are
+// compared or printed as text: filters, --merge-on keys and TSV. fmt prints a
+// float64 of a million and above with an exponent (2.10322647e+08), and every
+// number from a JSONL source is a float64; written out plainly it reads the
+// way the JSON output shows it and equals the same number from YAML.
+func valueString(v any) string {
+	if f, ok := v.(float64); ok {
+		if a := math.Abs(f); a == 0 || (a >= 1e-6 && a < 1e21) {
+			return strconv.FormatFloat(f, 'f', -1, 64)
+		}
+	}
+	return fmt.Sprint(v)
+}
+
 func (g *Grubber) StreamJSONL(w io.Writer) error {
 	enc := newRecordEncoder(w)
 
@@ -475,36 +496,50 @@ func (g *Grubber) textFiles() ([]string, error) {
 		extSet[e] = true
 	}
 
-	if g.depth != nil {
-		var files []string
-		for d := range *g.depth + 1 {
-			for _, ext := range g.extensions {
-				pattern := g.notesDir + "/" + strings.Repeat("*/", d) + "*" + ext
-				matches, err := filepath.Glob(pattern)
-				if err != nil {
-					return nil, err
-				}
-				for _, m := range matches {
-					if !inHiddenDir(g.notesDir, m) {
-						files = append(files, m)
-					}
-				}
-			}
-		}
-		return files, nil
+	// WalkDir does not follow a symlink given as its root, so a notes
+	// directory that is a link would yield no files. Walk what it points to
+	// and report the files under the path as given.
+	root := g.notesDir
+	if resolved, err := filepath.EvalSymlinks(root); err == nil {
+		root = resolved
 	}
-
+	// --depth is a limit on the same walk, not a glob pattern: a directory
+	// name with [, * or ? in it would otherwise be read as one.
+	sep := string(filepath.Separator)
 	var files []string
-	err := filepath.WalkDir(g.notesDir, func(path string, d os.DirEntry, err error) error {
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		if d.IsDir() && strings.HasPrefix(d.Name(), ".") && path != g.notesDir {
-			return filepath.SkipDir
+		if d.IsDir() {
+			if path == root {
+				if g.depth != nil && *g.depth < 0 {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			if strings.HasPrefix(d.Name(), ".") {
+				return filepath.SkipDir
+			}
+			if g.depth != nil {
+				rel, rerr := filepath.Rel(root, path)
+				if rerr != nil || strings.Count(rel, sep)+1 > *g.depth {
+					return filepath.SkipDir
+				}
+			}
+			return nil
 		}
-		if !d.IsDir() && extSet[filepath.Ext(path)] {
-			files = append(files, path)
+		if !extSet[filepath.Ext(path)] {
+			return nil
 		}
+		if root != g.notesDir {
+			rel, rerr := filepath.Rel(root, path)
+			if rerr != nil {
+				return rerr
+			}
+			path = filepath.Join(g.notesDir, rel)
+		}
+		files = append(files, path)
 		return nil
 	})
 	return files, err
@@ -546,6 +581,11 @@ func (g *Grubber) OutputTSV(records []Record, keys []string, w io.Writer) error 
 	if len(records) == 0 {
 		return nil
 	}
+	if keys == nil {
+		// --no-fill leaves the records as they are and Extract returns no
+		// key list; the columns are needed here all the same.
+		keys = recordKeys(records)
+	}
 	fmt.Fprintln(w, strings.Join(keys, "\t"))
 	replacer := strings.NewReplacer("\t", " ", "\n", " ", "\r", " ")
 	for _, r := range records {
@@ -557,11 +597,11 @@ func (g *Grubber) OutputTSV(records []Record, keys []string, w io.Writer) error 
 			case []any:
 				parts := make([]string, len(val))
 				for j, a := range val {
-					parts[j] = replacer.Replace(fmt.Sprint(a))
+					parts[j] = replacer.Replace(valueString(a))
 				}
 				row[i] = strings.Join(parts, ", ")
 			default:
-				row[i] = replacer.Replace(fmt.Sprint(val))
+				row[i] = replacer.Replace(valueString(val))
 			}
 		}
 		fmt.Fprintln(w, strings.Join(row, "\t"))
@@ -570,7 +610,8 @@ func (g *Grubber) OutputTSV(records []Record, keys []string, w io.Writer) error 
 }
 
 // normalizeValue makes a decoded YAML value safe for JSON output: dates
-// become YYYY-MM-DD strings, non-string map keys are stringified, NaN and
+// become YYYY-MM-DD strings (a timestamp with a time of day never gets here
+// as a time, see keepTimeOfDay), non-string map keys are stringified, NaN and
 // ±Inf become nil. Without this, one odd value in one file (an unquoted
 // {{...}} placeholder, a `.nan`) fails the marshal and kills the whole scan.
 func normalizeValue(v any) any {
@@ -615,23 +656,6 @@ func expandPath(path string) (string, error) {
 		return filepath.Join(home, path[2:]), nil
 	}
 	return filepath.Abs(path)
-}
-
-// inHiddenDir reports whether path lies inside a hidden directory below root.
-// Mirrors the WalkDir skip rule: hidden directories are excluded, hidden files
-// themselves are not.
-func inHiddenDir(root, path string) bool {
-	rel, err := filepath.Rel(root, path)
-	if err != nil {
-		return false
-	}
-	parts := strings.Split(rel, string(filepath.Separator))
-	for _, p := range parts[:len(parts)-1] {
-		if strings.HasPrefix(p, ".") {
-			return true
-		}
-	}
-	return false
 }
 
 func containsStr(slice []string, item string) bool {

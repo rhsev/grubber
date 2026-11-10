@@ -22,7 +22,7 @@ real character in the string. Breaks words for search and comparison exactly
 like the soft hyphen. Text copied out of chat UIs often carries these in
 bulk. U+200D JOINER is the exception and is kept, see below.
 
-**U+200E/200F and U+202A–202E bidi marks, embeddings, overrides.** Control
+**U+200E/200F, U+202A–202E and U+2066–2069 bidi marks, embeddings, overrides, isolates.** Control
 left-to-right/right-to-left rendering. Useless in plain notes, and
 RIGHT-TO-LEFT OVERRIDE can visually reverse text, which is the classic
 filename spoofing trick (`gpj.exe` displays as `exe.jpg`). Never legitimate
@@ -61,8 +61,9 @@ part of the line content.
 
 ## Deleted, not replaced
 
-`--fix` deletes; the only replacement is CRLF → LF (a lone `\r` is
-deleted). For nearly every class this follows from where the characters
+`--fix` deletes; the only replacement is CRLF → LF. A lone `\r` is
+deleted, except in a file without any `\n`. There `\r` is the line ending
+and becomes `\n`. For nearly every class this follows from where the characters
 sit. They have no visible counterpart and sit *between* letters that belong
 together, so substituting a space would cut words apart.
 

@@ -120,21 +120,28 @@ func frontmatterEnd(lines []string) int {
 	return -1
 }
 
-// codeFence reports whether a line opens a code fence, with its marker.
+// codeFence reports whether a line opens a code fence, with its marker: the
+// whole run of backticks or tildes, three or more.
 func codeFence(line string) (string, bool) {
 	t := strings.TrimSpace(line)
-	for _, m := range []string{"```", "~~~"} {
-		if strings.HasPrefix(t, m) {
-			return m, true
+	for _, c := range []byte{'`', '~'} {
+		n := 0
+		for n < len(t) && t[n] == c {
+			n++
+		}
+		if n >= 3 {
+			return t[:n], true
 		}
 	}
 	return "", false
 }
 
-// closesFence reports whether a line closes a fence opened with marker.
+// closesFence reports whether a line closes a fence opened with marker: the
+// same character alone on the line, at least as many as opened it. A fence of
+// four backticks can so hold an example with fences of three.
 func closesFence(line, marker string) bool {
 	t := strings.TrimSpace(line)
-	return strings.HasPrefix(t, marker) && strings.Trim(t, marker[:1]) == ""
+	return len(t) >= len(marker) && strings.Trim(t, marker[:1]) == ""
 }
 
 // ParseBlocks returns every closed data block of a note, in order.

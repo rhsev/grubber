@@ -194,7 +194,7 @@ grubber doctor ~/notes --fix > fix-log.txt
 
 `--only` filters the report to given categories, comma-separated, with two class shorthands: `yaml` (the first seven categories in the table, fixed by hand in the note) and `chars` (the four character-level ones, of which `--fix` handles `invisible-char` and `crlf`). The exit code follows the filter, so `doctor --only yaml` in cron stays green while deliberate NBSPs remain in the corpus. `--only` never changes what `--fix` touches.
 
-`--fix` rewrites only files with findings, atomically (temp file + rename; the file gets a new mtime/inode, so sync tools and backups see it as changed), and is idempotent. Tabs (TaskPaper semantics), NBSP and ZWJ (it holds composed emoji together) always survive. `.jsonl` files (e.g. collection indexes named in a set's `from_jsonl`) are scanned but never written; a finding there is a hint for the tool that owns them. Unicode normalization (NFC/NFD) is out of scope. [INVISIBLES.md](INVISIBLES.md) explains what problem each character class causes.
+`--fix` rewrites only files with findings and is idempotent. It overwrites the file in place, so the file keeps its inode and extended attributes, and a symlinked note stays a link. The mtime is new, so sync tools and backups see the file as changed. While it writes, the new content is kept in `.<name>.journal` next to the note. If a write stops halfway, that file remains and later writes to the note refuse until it is removed. Tabs (TaskPaper semantics), NBSP and ZWJ (it holds composed emoji together) always survive. `.jsonl` files (e.g. collection indexes named in a set's `from_jsonl`) are scanned but never written; a finding there is a hint for the tool that owns them. Unicode normalization (NFC/NFD) is out of scope. [INVISIBLES.md](INVISIBLES.md) explains what problem each character class causes.
 
 ## Piping to other tools
 
@@ -384,7 +384,7 @@ grubber reads metadata from two Typst constructs:
 - `#metadata((key: "value", ...)) <label>`: custom per-document metadata tuple, takes priority
 - `#set document(title: "...", author: "...", date: datetime(...))`: standard Typst document metadata
 
-Only the first matching block per file is read. `datetime(year:, month:, day:)` values are converted to `YYYY-MM-DD` strings. Arrays are supported: `("a", "b", "c")` becomes a JSON array.
+Only the first matching block per file is read. `datetime(year:, month:, day:)` values are converted to `YYYY-MM-DD` strings. Arrays are supported: `("a", "b", "c")` becomes a JSON array. A content block such as `[My title]` is read as its text.
 
 ### vCard
 
@@ -426,7 +426,7 @@ happened. Quoting is a content decision, so `--fix` leaves them alone.
 
 - Extract only. grubber reads and outputs. No transforms, no joins, no computed fields.
 - Valid Markdown. The format doesn't break any renderer. grubber adds a queryable layer on top.
-- Dates are output as strings (`YYYY-MM-DD`) for safe JSON serialization.
+- Dates are output as strings (`YYYY-MM-DD`) for safe JSON serialization. A timestamp with a time of day is output as the note writes it.
 - Schema-agnostic. grubber extracts whatever YAML it finds. Field names and record types are up to you.
 - JSON keys are sorted alphabetically for deterministic output. Record order is
   fixed too, whatever the workers do, so the same corpus gives byte-identical

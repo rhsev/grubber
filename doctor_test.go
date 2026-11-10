@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/rhsev/grubber/entry"
 )
 
 // extractWithDiag runs the md parser over data with diagnostics enabled and
@@ -382,5 +384,67 @@ func TestDoctorLeadingZeroInsideArray(t *testing.T) {
 	findings := extractWithDiag(t, "---\ncodes: [0123, 456]\n---\n")
 	if f := findCategory(findings, "leading-zero-number"); f == nil {
 		t.Errorf("array elements should be inspected too, got %v", findings)
+	}
+}
+
+// --fix overwrites the note: the file stays the same file (inode, and with it
+// extended attributes such as Finder tags), and a symlink in the notes
+// directory stays a link while the note it points to is the one repaired.
+func TestDoctorScanFixKeepsFileAndSymlink(t *testing.T) {
+	dir := t.TempDir()
+	real := filepath.Join(dir, "real.md")
+	link := filepath.Join(dir, "link.md")
+	if err := os.WriteFile(real, []byte("a­b\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(real, link); err != nil {
+		t.Skip("no symlinks here:", err)
+	}
+	before, err := os.Stat(real)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	res := doctorScan([]string{link}, true)
+	if res.fixed != 1 {
+		t.Fatalf("fixed=%d, findings %v", res.fixed, res.findings)
+	}
+	if info, err := os.Lstat(link); err != nil || info.Mode()&os.ModeSymlink == 0 {
+		t.Errorf("link must stay a symlink, got %v (%v)", info.Mode(), err)
+	}
+	if got, _ := os.ReadFile(real); string(got) != "ab\n" {
+		t.Errorf("the link's target must be repaired, got %q", got)
+	}
+	after, err := os.Stat(real)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !os.SameFile(before, after) {
+		t.Error("the note must stay the same file, got a new inode")
+	}
+	if _, err := os.Lstat(entry.JournalPath(real)); err == nil {
+		t.Error("journal left behind after a finished write")
+	}
+}
+
+// In a file without any \n, \r is the line ending: --fix turns it into \n
+// instead of joining every line into one.
+func TestFixCharsCROnlyFile(t *testing.T) {
+	got := string(fixChars([]byte("line1\rline2\rline3\r")))
+	if got != "line1\nline2\nline3\n" {
+		t.Errorf("got %q", got)
+	}
+	if again := string(fixChars([]byte(got))); again != got {
+		t.Errorf("not idempotent: %q", again)
+	}
+}
+
+func TestBidiIsolatesAreRemoved(t *testing.T) {
+	if got := string(fixChars([]byte("a⁦b⁩c"))); got != "abc" {
+		t.Errorf("got %q", got)
+	}
+	stats, _, _ := scanChars([]byte("a⁧b"))
+	if stats[0x2067] == nil || charName(0x2067) != "RIGHT-TO-LEFT ISOLATE" {
+		t.Errorf("U+2067 not reported: %v", stats)
 	}
 }

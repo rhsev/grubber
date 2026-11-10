@@ -44,11 +44,18 @@ func typstFindBlock(data []byte, prefix string) []byte {
 	}
 	start := idx + len(prefix)
 	depth := 1
+	inStr := false
 	for i := start; i < len(data); i++ {
-		switch data[i] {
-		case '(':
+		switch c := data[i]; {
+		case inStr && c == '\\':
+			i++ // an escaped character, \" among them
+		case c == '"':
+			inStr = !inStr
+		case inStr:
+			// A paren inside a string is text.
+		case c == '(':
 			depth++
-		case ')':
+		case c == ')':
 			depth--
 			if depth == 0 {
 				return data[start:i]
@@ -90,20 +97,25 @@ func parseTypstFields(content []byte) Record {
 	return result
 }
 
-// typstSplit splits s on sep only when not inside parentheses or double quotes.
+// typstSplit splits s on sep only when not inside parentheses, a [content]
+// block or double quotes.
 func typstSplit(s string, sep rune) []string {
 	var parts []string
 	depth, start := 0, 0
-	inStr := false
+	inStr, escaped := false, false
 	for i, ch := range s {
 		switch {
+		case escaped:
+			escaped = false
+		case inStr && ch == '\\':
+			escaped = true
 		case inStr && ch == '"':
 			inStr = false
 		case !inStr && ch == '"':
 			inStr = true
-		case !inStr && ch == '(':
+		case !inStr && (ch == '(' || ch == '['):
 			depth++
-		case !inStr && ch == ')':
+		case !inStr && (ch == ')' || ch == ']'):
 			depth--
 		case !inStr && depth == 0 && ch == sep:
 			parts = append(parts, s[start:i])
@@ -122,6 +134,10 @@ func parseTypstValue(s string) any {
 	// Quoted string: "..."
 	if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
 		return s[1 : len(s)-1]
+	}
+	// Content block: [Some title, with a comma]
+	if len(s) >= 2 && s[0] == '[' && s[len(s)-1] == ']' {
+		return strings.TrimSpace(s[1 : len(s)-1])
 	}
 	// Array: ("a", "b", ...)
 	if len(s) >= 2 && s[0] == '(' && s[len(s)-1] == ')' {

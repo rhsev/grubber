@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	jsonv2 "encoding/json/v2"
 	"flag"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/rhsev/grubber/entry"
 	"gopkg.in/yaml.v3"
 )
 
@@ -181,6 +183,10 @@ var charNames = map[rune]string{
 	0x2062: "INVISIBLE TIMES",
 	0x2063: "INVISIBLE SEPARATOR",
 	0x2064: "INVISIBLE PLUS",
+	0x2066: "LEFT-TO-RIGHT ISOLATE",
+	0x2067: "RIGHT-TO-LEFT ISOLATE",
+	0x2068: "FIRST STRONG ISOLATE",
+	0x2069: "POP DIRECTIONAL ISOLATE",
 	0xFEFF: "ZERO WIDTH NO-BREAK SPACE (BOM)",
 }
 
@@ -202,7 +208,7 @@ func suspectRune(r rune) bool {
 // removableRune reports whether --fix strips r. The list is deliberately
 // fixed, and tabs and the suspect runes are deliberately NOT on it — tabs
 // carry TaskPaper semantics, the suspect ones can be meant.
-// \r is handled separately (CRLF→LF normalization; lone \r is removed).
+// \r is handled separately, see fixChars.
 func removableRune(r rune) bool {
 	if suspectRune(r) {
 		return false
@@ -215,6 +221,8 @@ func removableRune(r rune) bool {
 	case r >= 0x2028 && r <= 0x202E:
 		return true
 	case r >= 0x2060 && r <= 0x2064:
+		return true
+	case r >= 0x2066 && r <= 0x2069: // bidi isolates
 		return true
 	case r >= 0x0080 && r <= 0x009F: // C1 controls
 		return true
@@ -283,8 +291,11 @@ func scanChars(data []byte) (stats map[rune]*charStat, crlf *charStat, invalid m
 }
 
 // fixChars returns data with removable runes stripped and CRLF normalized to
-// LF. Tabs and NBSP survive. Idempotent.
+// LF. A lone \r is removed, except in a file without any \n: there \r is
+// the line ending (old Mac), and removing it would join every line into one,
+// so it becomes \n. Tabs and NBSP survive. Idempotent.
 func fixChars(data []byte) []byte {
+	crOnly := bytes.IndexByte(data, '\n') < 0
 	out := make([]byte, 0, len(data))
 	for i := 0; i < len(data); {
 		r, size := utf8.DecodeRune(data[i:])
@@ -293,7 +304,12 @@ func fixChars(data []byte) []byte {
 			i += 2
 			continue
 		}
-		if !removableRune(r) && r != '\r' { // lone \r is removed too
+		switch {
+		case r == '\r':
+			if crOnly {
+				out = append(out, '\n')
+			}
+		case !removableRune(r):
 			out = append(out, data[i:i+size]...)
 		}
 		i += size
@@ -382,7 +398,7 @@ type doctorResult struct {
 
 // doctorScan runs the character scan and (where a parser exists) the parse
 // diagnostics over files. With fix, files with removable characters or CRLF
-// are rewritten atomically — except .jsonl, which is report-only: collection
+// are overwritten in place — except .jsonl, which is report-only: collection
 // indexes belong to the register domain, a finding there is a hint, not a
 // repair order.
 func doctorScan(files []string, fix bool) doctorResult {
@@ -418,7 +434,7 @@ func doctorScan(files []string, fix bool) doctorResult {
 			res.affected++
 		}
 		if fix && fixable && filepath.Ext(path) != ".jsonl" {
-			if err := writeAtomic(path, fixChars(data)); err != nil {
+			if err := entry.WriteInPlace(path, fixChars(data), entry.Hash(data)); err != nil {
 				d.setPos(path, 0)
 				d.add("write-error", "%v", err)
 				continue
@@ -428,35 +444,6 @@ func doctorScan(files []string, fix bool) doctorResult {
 	}
 	res.findings = d.findings
 	return res
-}
-
-// writeAtomic replaces path via temp file + rename in the same directory.
-// The file gets a new inode and mtime — sync tools and backups will see it
-// as changed.
-func writeAtomic(path string, data []byte) error {
-	info, err := os.Stat(path)
-	if err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".doctor-*")
-	if err != nil {
-		return err
-	}
-	tmpName := tmp.Name()
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		os.Remove(tmpName)
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		os.Remove(tmpName)
-		return err
-	}
-	if err := os.Chmod(tmpName, info.Mode()); err != nil {
-		os.Remove(tmpName)
-		return err
-	}
-	return os.Rename(tmpName, path)
 }
 
 func runDoctor(args []string) {
@@ -568,7 +555,7 @@ func runDoctor(args []string) {
 		fmt.Printf("%s\t%s\t%s\n", pos, f.Category, f.Message)
 	}
 	if res.fixed > 0 {
-		fmt.Fprintf(os.Stderr, "fixed %d file(s) in place — new mtime/inode, sync tools and backups will see them as changed\n", res.fixed)
+		fmt.Fprintf(os.Stderr, "fixed %d file(s) in place — new mtime, sync tools and backups will see them as changed\n", res.fixed)
 	}
 	if len(res.findings) == 0 {
 		fmt.Fprintf(os.Stderr, "clean: %d files scanned\n", res.scanned)
@@ -593,7 +580,7 @@ that break search and pipelines. Categories:
   leading-zero-number
                    unquoted number lost its leading zero (01711234890 →
                    1711234890); octal-valid digits become another number
-  invisible-char   soft hyphen, zero-width, bidi, BOM, C0/C1 controls
+  invisible-char   soft hyphen, zero-width, bidi, BOM, C0/C1 controls, lone \r
   suspect-char     NBSP and ZWJ — reported only, never fixed (NBSP can be
                    typography, ZWJ holds composed emoji together)
   invalid-utf8     byte that is not valid UTF-8 — reported only, never fixed
@@ -612,7 +599,8 @@ Options:
                           chars (the hygiene findings). Filters report and
                           exit code; does not change what --fix touches
       --fix               Remove invisible characters and normalize CRLF, in
-                          place (atomic replace; never touches .jsonl; tabs
+                          place (the file is overwritten and keeps its inode and
+                          extended attributes; never touches .jsonl; tabs
                           and NBSP always survive)
   -h, --help              Show this help
 `)

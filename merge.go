@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"strings"
 
 	"golang.org/x/text/unicode/norm"
@@ -65,7 +64,7 @@ func mergeKey(r Record, keys []string) (string, bool) {
 	parts := make([]string, len(keys))
 	for i, k := range keys {
 		if v := r[k]; v != nil {
-			parts[i] = norm.NFC.String(fmt.Sprint(v))
+			parts[i] = norm.NFC.String(valueString(v))
 		}
 	}
 	return strings.Join(parts, "\x00"), true

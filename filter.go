@@ -110,9 +110,9 @@ func fieldValues(v any) []string {
 	if arr, ok := v.([]any); ok {
 		result := make([]string, len(arr))
 		for i, item := range arr {
-			result[i] = fmt.Sprint(item)
+			result[i] = valueString(item)
 		}
 		return result
 	}
-	return []string{fmt.Sprint(v)}
+	return []string{valueString(v)}
 }

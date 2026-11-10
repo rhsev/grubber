@@ -172,3 +172,18 @@ func TestYmlIsNoBlock(t *testing.T) {
 		t.Errorf("a yml fence is an example, got %d blocks", len(blocks))
 	}
 }
+
+// A fence of four backticks holds an example with fences of three; the
+// blocks after it are still found.
+func TestParseBlocksLongerFence(t *testing.T) {
+	note := "# Doc\n\n````markdown\n```yaml\nid: example\n```\n````\n\n~~~~\n~~~\n# no heading\n~~~~\n\n# Real\n\nprose\n\n```yaml\nid: 7\n```\n"
+	lines := strings.Split(note, "\n")
+	blocks := ParseBlocks(lines)
+	if len(blocks) != 1 {
+		t.Fatalf("want the one real block, got %+v", blocks)
+	}
+	b := blocks[0]
+	if b.Open != 17 || b.Heading != "Real" || b.Prose(lines) != "prose" {
+		t.Errorf("got %+v, prose %q", b, b.Prose(lines))
+	}
+}

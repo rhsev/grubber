@@ -403,19 +403,9 @@ func execute(opts execOpts) {
 		g.SetInherit(inherit)
 	}
 
-	var out *os.File
-	if opts.outputFile != "" {
-		out, err = os.Create(opts.outputFile)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
-		}
-	} else {
-		out = os.Stdout
-	}
-
 	// JSONL streams directly without collecting all records first
 	if finalFormat == "jsonl" {
+		out := openOutput(opts.outputFile)
 		if err = g.StreamJSONL(out); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
@@ -436,8 +426,24 @@ func execute(opts execOpts) {
 		} else {
 			fmt.Fprintf(os.Stderr, "No records found\n")
 		}
+		// Nothing goes to stdout, as before. An -o file gets the empty
+		// result, so that it is valid JSON and not what an earlier run left.
+		if opts.outputFile != "" {
+			out := openOutput(opts.outputFile)
+			if finalFormat == "json" {
+				if err := g.OutputJSON([]Record{}, out); err != nil {
+					fmt.Fprintf(os.Stderr, "Error writing output: %v\n", err)
+					os.Exit(1)
+				}
+			}
+			closeOutput(out)
+		}
 		os.Exit(0)
 	}
+
+	// The -o file is opened only now: a run that fails above leaves the
+	// file of an earlier run as it was.
+	out := openOutput(opts.outputFile)
 
 	switch finalFormat {
 	case "tsv":
@@ -454,6 +460,19 @@ func execute(opts execOpts) {
 	if opts.outputFile != "" {
 		fmt.Fprintf(os.Stderr, "Extracted %d records to %s\n", len(records), opts.outputFile)
 	}
+}
+
+// openOutput returns the -o file, or stdout when none is named.
+func openOutput(path string) *os.File {
+	if path == "" {
+		return os.Stdout
+	}
+	out, err := os.Create(path)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+	return out
 }
 
 // closeOutput closes an -o file and fails the run if that fails. On a network

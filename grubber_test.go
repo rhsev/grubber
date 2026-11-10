@@ -420,3 +420,123 @@ func TestNoteOrderDiffersPerFormat(t *testing.T) {
 		t.Errorf("jsonl order: got %v, want %v (scan order)", scanned, want)
 	}
 }
+
+// A notes directory given as a symlink is scanned, and the files are reported
+// under the path as given, with and without --depth.
+func TestTextFilesSymlinkedRoot(t *testing.T) {
+	dir := t.TempDir()
+	real := filepath.Join(dir, "real")
+	link := filepath.Join(dir, "link")
+	if err := os.MkdirAll(filepath.Join(real, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(real, ".hidden"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{"a.md", "sub/b.md", ".hidden/c.md"} {
+		if err := os.WriteFile(filepath.Join(real, f), []byte("---\ntitle: x\n---\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(real, link); err != nil {
+		t.Skip("no symlinks here:", err)
+	}
+	want := []string{filepath.Join(link, "a.md"), filepath.Join(link, "sub", "b.md")}
+	depth := 1
+	for _, d := range []*int{nil, &depth} {
+		g, err := NewGrubber(link, false, false, false, false, d, 0, nil, nil, []string{".md"}, nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		files, err := g.textFiles()
+		if err != nil {
+			t.Fatal(err)
+		}
+		slices.Sort(files)
+		if strings.Join(files, "\n") != strings.Join(want, "\n") {
+			t.Errorf("depth %v: got %v, want %v", d, files, want)
+		}
+	}
+}
+
+// --depth walks the tree instead of globbing: a directory name with glob
+// characters is a name, and a directory that ends in .md is no note.
+func TestTextFilesDepthIsNoGlob(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "Notes [2024]")
+	if err := os.MkdirAll(filepath.Join(dir, "sub.md", "deeper"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{"a.md", "sub.md/b.md", "sub.md/deeper/c.md"} {
+		if err := os.WriteFile(filepath.Join(dir, f), []byte("---\ntitle: x\n---\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for depth, want := range map[int]int{-1: 0, 0: 1, 1: 2, 2: 3} {
+		g, err := NewGrubber(dir, false, false, false, false, &depth, 0, nil, nil, nil, nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		files, err := g.textFiles()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(files) != want {
+			t.Errorf("depth %d: want %d files, got %v", depth, want, files)
+		}
+	}
+}
+
+func TestValueString(t *testing.T) {
+	cases := map[any]string{
+		float64(210322647): "210322647",
+		1500000.0:          "1500000",
+		0.5:                "0.5",
+		float64(0):         "0",
+		210322647:          "210322647",
+		"text":             "text",
+		true:               "true",
+	}
+	for in, want := range cases {
+		if got := valueString(in); got != want {
+			t.Errorf("valueString(%v) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// A number from a JSONL source is a float64; it must meet the same number
+// from YAML in a merge key, match a filter and print plainly in TSV.
+func TestJSONLNumbersCompareAsWritten(t *testing.T) {
+	scanned := []Record{{"id": 210322647, "note": "scanned"}}
+	jsonl := []Record{{"id": float64(210322647), "extra": "index"}}
+	merged := mergeRecords(scanned, jsonl, []string{"id"})
+	if len(merged) != 1 || merged[0]["extra"] != "index" {
+		t.Errorf("merge on a numeric id: got %v", merged)
+	}
+	f, err := NewFilter([]string{"id=210322647"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !f.Match(jsonl[0]) {
+		t.Error("filter must match a numeric id from JSONL")
+	}
+	var buf bytes.Buffer
+	g := &Grubber{}
+	if err := g.OutputTSV(jsonl, []string{"id"}, &buf); err != nil {
+		t.Fatal(err)
+	}
+	if buf.String() != "id\n210322647\n" {
+		t.Errorf("TSV: got %q", buf.String())
+	}
+}
+
+// --no-fill returns no key list; TSV still needs its columns.
+func TestOutputTSVWithoutKeys(t *testing.T) {
+	var buf bytes.Buffer
+	g := &Grubber{}
+	if err := g.OutputTSV([]Record{{"b": "2", "a": "1"}, {"c": "3"}}, nil, &buf); err != nil {
+		t.Fatal(err)
+	}
+	if buf.String() != "a\tb\tc\n1\t2\t\n\t\t3\n" {
+		t.Errorf("got %q", buf.String())
+	}
+}

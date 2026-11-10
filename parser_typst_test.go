@@ -124,3 +124,16 @@ func TestTypstExtractNoBlock(t *testing.T) {
 		t.Errorf("expected nil/empty, got fm=%v blocks=%v", fm, blocks)
 	}
 }
+
+func TestTypstContentBlockAndParenInString(t *testing.T) {
+	p := &typstParser{}
+	data := `#set document(title: [Foo, Bar: baz], author: "A (b", keywords: ("x", "y"))`
+	_, blocks, err := p.Extract("f.typ", []byte(data), ParseOpts{})
+	if err != nil || len(blocks) != 1 {
+		t.Fatalf("blocks %v, err %v", blocks, err)
+	}
+	r := blocks[0]
+	if r["title"] != "Foo, Bar: baz" || r["author"] != "A (b" || len(r) != 3 {
+		t.Errorf("got %v", r)
+	}
+}
