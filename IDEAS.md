@@ -34,12 +34,10 @@ existing corpus changes behavior. Can land any time.
 - Resolve through the normal tier `config → env → set → CLI` (like `extensions`),
   i.e. add a `defaults.block_marker` key + accessor in `config.go`, a
   `GRUBBER_BLOCK_MARKER` env var, and a `--block-marker` CLI flag.
-- `yamlBlockRe` in `parser_md.go`,
-  `(?ms)^[ \t]*```yaml[ \t]*\r?$\n(.*?)\r?\n[ \t]*```[ \t]*\r?$`, allows only
-  whitespace after `yaml` on the opening fence line, so ` ```yaml data ` is
-  **not** matched today. The parser needs info-string parsing (read the token
-  after `yaml`) to recognize the marked form and, in `data` mode, skip unmarked
-  blocks.
+- `IsDataOpen` in `entry/entry.go` allows only whitespace after `yaml` on the
+  opening fence line, so ` ```yaml data ` is **not** matched today.
+  `entry.DataBlocks` needs info-string parsing (read the token after `yaml`)
+  to recognize the marked form and, in `data` mode, skip unmarked blocks.
 - Keep the marker word fixed (`data`); the option chooses the *policy*, not the
   vocabulary.
 - Scope to the markdown parser only, since code fences are markdown-specific;
