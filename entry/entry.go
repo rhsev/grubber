@@ -76,6 +76,108 @@ func DataBlocks(lines []string) []Span {
 	return spans
 }
 
+// Mapping parses the text between a block's fences. A block that is a YAML
+// mapping comes back as its node. One that is valid YAML of another kind, or
+// empty, holds no record: nil without an error. An error means the text is
+// not valid YAML, and the block is then read with LenientFields.
+func Mapping(body []byte) (*yaml.Node, error) {
+	var node yaml.Node
+	if err := yaml.Unmarshal(body, &node); err != nil {
+		return nil, err
+	}
+	if node.Kind == 0 || len(node.Content) == 0 || node.Content[0].Kind != yaml.MappingNode {
+		return nil, nil
+	}
+	return node.Content[0], nil
+}
+
+// Fields reads the text between a block's fences into its fields, as grubber
+// does: a mapping by its keys, the last one winning when a key stands twice,
+// and text that is not valid YAML line by line. lenient reports the second
+// case. nil means the block holds no record.
+func Fields(body []byte) (fields map[string]any, lenient bool) {
+	doc, err := Mapping(body)
+	if err != nil {
+		return LenientFields(body), true
+	}
+	if doc == nil {
+		return nil, false
+	}
+	fields = make(map[string]any, len(doc.Content)/2)
+	for i := 0; i+1 < len(doc.Content); i += 2 {
+		var val any
+		doc.Content[i+1].Decode(&val) //nolint:errcheck
+		fields[doc.Content[i].Value] = val
+	}
+	return fields, false
+}
+
+// LenientFields reads a block that is not valid YAML line by line: every
+// line of the form key: value is a field, whatever its indentation, and the
+// value is the rest of the line as text. A value in quotes that close on the
+// line is read without them, as YAML would read it, so that id: '42' is the
+// id 42 here too. Lists, nested keys and values over several lines are not
+// understood. nil when no line is a field.
+func LenientFields(body []byte) map[string]any {
+	result := make(map[string]any)
+	for _, raw := range strings.Split(string(body), "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" || line[0] == '#' {
+			continue
+		}
+		idx := strings.IndexByte(line, ':')
+		if idx <= 0 {
+			continue
+		}
+		key := strings.TrimSpace(line[:idx])
+		val := strings.TrimSpace(line[idx+1:])
+		if key == "" {
+			continue
+		}
+		if val == "" {
+			result[key] = nil
+		} else {
+			result[key] = unquoted(val)
+		}
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
+}
+
+// unquoted returns the text of a quoted YAML scalar, and v itself when v is
+// anything else: the quote that opens v must close it at its end and nowhere
+// before.
+func unquoted(v string) string {
+	if len(v) < 2 || (v[0] != '\'' && v[0] != '"') || v[len(v)-1] != v[0] {
+		return v
+	}
+	inner := v[1 : len(v)-1]
+	if v[0] == '\'' {
+		if strings.Contains(strings.ReplaceAll(inner, "''", ""), "'") {
+			return v
+		}
+		return strings.ReplaceAll(inner, "''", "'")
+	}
+	for i := 0; i < len(inner); i++ {
+		switch inner[i] {
+		case '\\':
+			i++
+			if i == len(inner) {
+				return v // the closing quote is escaped
+			}
+		case '"':
+			return v
+		}
+	}
+	var text string
+	if yaml.Unmarshal([]byte(v), &text) != nil {
+		return v
+	}
+	return text
+}
+
 // Block is one data block and the entry around it. Indexes are 0-based lines.
 type Block struct {
 	Start       int    // first line after the boundary
@@ -198,10 +300,7 @@ func ParseBlocks(lines []string) []Block {
 				j++
 			}
 			if j < len(lines) {
-				var fields map[string]any
-				if yaml.Unmarshal([]byte(strings.Join(lines[i+1:j], "\n")), &fields) != nil {
-					fields = nil
-				}
+				fields, _ := Fields([]byte(strings.Join(lines[i+1:j], "\n")))
 				blocks = append(blocks, Block{Start: boundary, Open: i, Close: j, Heading: heading, Fields: fields})
 				boundary = j + 1
 				i = j

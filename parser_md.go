@@ -52,8 +52,10 @@ func (p *mdParser) Extract(path string, data []byte, opts ParseOpts) (Record, []
 }
 
 func parseYAMLString(content []byte, d *Diagnostics) Record {
-	var node yaml.Node
-	if err := yaml.Unmarshal(content, &node); err != nil {
+	// What a block's text holds, and when it is read line by line, stands in
+	// package entry, for the tools that edit the blocks read here.
+	doc, err := entry.Mapping(content)
+	if err != nil {
 		if d != nil {
 			d.add("yaml-error", "%v, line-by-line fallback used", err)
 		} else {
@@ -61,11 +63,7 @@ func parseYAMLString(content []byte, d *Diagnostics) Record {
 		}
 		return parseYAMLLenient(content)
 	}
-	if node.Kind == 0 || len(node.Content) == 0 {
-		return nil
-	}
-	doc := node.Content[0]
-	if doc.Kind != yaml.MappingNode {
+	if doc == nil {
 		return nil
 	}
 	var seen map[string]bool
@@ -115,31 +113,7 @@ func keepTimeOfDay(node *yaml.Node) {
 }
 
 func parseYAMLLenient(content []byte) Record {
-	result := make(Record)
-	for _, rawLine := range bytes.Split(content, []byte("\n")) {
-		line := bytes.TrimSpace(rawLine)
-		if len(line) == 0 || line[0] == '#' {
-			continue
-		}
-		idx := bytes.IndexByte(line, ':')
-		if idx <= 0 {
-			continue
-		}
-		key := string(bytes.TrimSpace(line[:idx]))
-		val := string(bytes.TrimSpace(line[idx+1:]))
-		if key == "" {
-			continue
-		}
-		if val == "" {
-			result[key] = nil
-		} else {
-			result[key] = val
-		}
-	}
-	if len(result) == 0 {
-		return nil
-	}
-	return result
+	return Record(entry.LenientFields(content))
 }
 
 func parseYAMLBlocks(body []byte, baseLine int, d *Diagnostics) []Record {
