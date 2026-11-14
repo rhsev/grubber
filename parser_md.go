@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/rhsev/grubber/entry"
 	"gopkg.in/yaml.v3"
 )
 
@@ -18,16 +19,7 @@ var (
 	// The closing --- may be the file's last line without a newline after it:
 	// a note that is frontmatter only often ends that way.
 	frontmatterRe = regexp.MustCompile("(?s)^---\r?\n(.*?)\r?\n---\r?(?:\n|\\z)")
-	// Fences must be fence-only lines, but may be indented (e.g. blocks
-	// inside list items) — an indented closing fence must still terminate
-	// the block, or the match runs on into unrelated prose. The content ends
-	// at the start of the closing fence's line, so it may be empty: an empty
-	// block closes at once instead of reaching for the next fence below it.
-	yamlBlockRe = regexp.MustCompile("(?ms)^[ \t]*```yaml[ \t]*\r?\n(.*?)^[ \t]*```[ \t]*\r?$")
-	// Opening fences alone, for doctor: an opener that is not part of a
-	// yamlBlockRe match has no closing fence and its block is ignored.
-	yamlFenceOpenRe = regexp.MustCompile("(?m)^[ \t]*```yaml[ \t]*\r?$")
-	yamlMarker      = []byte("```yaml")
+	yamlMarker    = []byte("```yaml")
 )
 
 type mdParser struct{}
@@ -151,15 +143,21 @@ func parseYAMLLenient(content []byte) Record {
 }
 
 func parseYAMLBlocks(body []byte, baseLine int, d *Diagnostics) []Record {
-	newline := []byte("\n")
-	matches := yamlBlockRe.FindAllSubmatchIndex(body, -1)
-	records := make([]Record, 0, len(matches))
-	for _, m := range matches {
-		line := baseLine + bytes.Count(body[:m[0]], newline) + 1
+	// What a block is stands in entry.DataBlocks, for grubber and for the
+	// tools that edit the blocks it reads.
+	lines := strings.Split(string(body), "\n")
+	spans := entry.DataBlocks(lines)
+	records := make([]Record, 0, len(spans))
+	for _, s := range spans {
+		line := baseLine + s.Open + 1
 		if d != nil {
 			d.setLine(line)
 		}
-		if r := parseYAMLString(body[m[2]:m[3]], d); len(r) > 0 {
+		text := ""
+		if s.Close > s.Open+1 {
+			text = strings.Join(lines[s.Open+1:s.Close], "\n") + "\n"
+		}
+		if r := parseYAMLString([]byte(text), d); len(r) > 0 {
 			// The opening fence's line: with _note_file the block's address,
 			// for tools that work on one entry (commenter --line).
 			r["_line"] = line
@@ -167,23 +165,21 @@ func parseYAMLBlocks(body []byte, baseLine int, d *Diagnostics) []Record {
 		}
 	}
 	if d != nil {
-		for _, f := range yamlFenceOpenRe.FindAllIndex(body, -1) {
-			if !insideSpan(f[0], matches) {
-				d.setLine(baseLine + bytes.Count(body[:f[0]], newline) + 1)
+		next := 0
+		for i, l := range lines {
+			for next < len(spans) && spans[next].Close < i {
+				next++
+			}
+			if next < len(spans) && i >= spans[next].Open {
+				continue
+			}
+			if entry.IsDataOpen(l) {
+				d.setLine(baseLine + i + 1)
 				d.add("unclosed-fence", "```yaml fence without a closing fence, block ignored")
 			}
 		}
 	}
 	return records
-}
-
-func insideSpan(off int, spans [][]int) bool {
-	for _, s := range spans {
-		if off >= s[0] && off < s[1] {
-			return true
-		}
-	}
-	return false
 }
 
 func parseMmdHeader(content string) (Record, string) {

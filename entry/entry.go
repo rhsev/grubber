@@ -31,12 +31,50 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-var (
-	// The fences grubber reads: indentation and trailing blanks allowed.
-	dataOpenRe  = regexp.MustCompile("^[ \t]*```yaml[ \t]*$")
-	dataCloseRe = regexp.MustCompile("^[ \t]*```[ \t]*$")
-	ruleRe      = regexp.MustCompile(`^-{3,}$`)
-)
+var ruleRe = regexp.MustCompile(`^-{3,}$`)
+
+// IsDataOpen reports whether a line opens a data block: ```yaml alone on the
+// line. Indentation, trailing blanks and a carriage return are allowed.
+func IsDataOpen(line string) bool { return fenceText(line) == "```yaml" }
+
+// IsDataClose reports whether a line closes a data block: ``` alone on the
+// line, with the same allowances.
+func IsDataClose(line string) bool { return fenceText(line) == "```" }
+
+func fenceText(line string) string {
+	return strings.Trim(strings.TrimSuffix(line, "\r"), " \t")
+}
+
+// Span is a data block by the lines of its fences, 0-based.
+type Span struct{ Open, Close int }
+
+// DataBlocks returns every data block grubber reads from the lines of a note,
+// in order. This is the rule for what a data block is, and the one place it
+// stands: grubber reads its records with it, and a tool that edits blocks
+// finds them with it, so the two see the same blocks.
+//
+// A block runs from a ```yaml line to the next ``` line and may be empty. A
+// ```yaml line without a closing fence below it is no block. Other code
+// fences are not looked at: a block inside a longer fence or a ~~~ fence is
+// read. ParseBlocks, which works on the prose, leaves such a block out.
+func DataBlocks(lines []string) []Span {
+	var spans []Span
+	for i := 0; i < len(lines); i++ {
+		if !IsDataOpen(lines[i]) {
+			continue
+		}
+		j := i + 1
+		for j < len(lines) && !IsDataClose(lines[j]) {
+			j++
+		}
+		if j == len(lines) {
+			break // no closing fence below, so none for a later block either
+		}
+		spans = append(spans, Span{Open: i, Close: j})
+		i = j
+	}
+	return spans
+}
 
 // Block is one data block and the entry around it. Indexes are 0-based lines.
 type Block struct {
@@ -154,9 +192,9 @@ func ParseBlocks(lines []string) []Block {
 	heading := ""
 	for i := boundary; i < len(lines); i++ {
 		line := lines[i]
-		if dataOpenRe.MatchString(line) {
+		if IsDataOpen(line) {
 			j := i + 1
-			for j < len(lines) && !dataCloseRe.MatchString(lines[j]) {
+			for j < len(lines) && !IsDataClose(lines[j]) {
 				j++
 			}
 			if j < len(lines) {
