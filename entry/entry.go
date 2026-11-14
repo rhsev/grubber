@@ -54,26 +54,46 @@ type Span struct{ Open, Close int }
 // finds them with it, so the two see the same blocks.
 //
 // A block runs from a ```yaml line to the next ``` line and may be empty. A
-// ```yaml line without a closing fence below it is no block. Other code
-// fences are not looked at: a block inside a longer fence or a ~~~ fence is
-// read. ParseBlocks, which works on the prose, leaves such a block out.
+// ```yaml line without a closing fence below it is no block. A block inside
+// another code fence is that fence's text, an example and no data: one in a
+// fence of four backticks, in a ~~~ fence, or below a fence that was never
+// closed. The lines are a note's body; frontmatter is the caller's to cut off.
 func DataBlocks(lines []string) []Span {
-	var spans []Span
+	spans, _ := scanData(lines)
+	return spans
+}
+
+// UnclosedData returns the lines that open a data block no fence closes,
+// 0-based. grubber reads no record from there on, and doctor says so.
+func UnclosedData(lines []string) []int {
+	_, unclosed := scanData(lines)
+	return unclosed
+}
+
+func scanData(lines []string) (spans []Span, unclosed []int) {
 	for i := 0; i < len(lines); i++ {
-		if !IsDataOpen(lines[i]) {
+		line := lines[i]
+		if IsDataOpen(line) {
+			j := i + 1
+			for j < len(lines) && !IsDataClose(lines[j]) {
+				j++
+			}
+			if j < len(lines) {
+				spans = append(spans, Span{Open: i, Close: j})
+				i = j
+			} else {
+				unclosed = append(unclosed, i)
+			}
 			continue
 		}
-		j := i + 1
-		for j < len(lines) && !IsDataClose(lines[j]) {
-			j++
+		if marker, ok := codeFence(line); ok {
+			i++
+			for i < len(lines) && !closesFence(lines[i], marker) {
+				i++
+			}
 		}
-		if j == len(lines) {
-			break // no closing fence below, so none for a later block either
-		}
-		spans = append(spans, Span{Open: i, Close: j})
-		i = j
 	}
-	return spans
+	return spans, unclosed
 }
 
 // Mapping parses the text between a block's fences. A block that is a YAML

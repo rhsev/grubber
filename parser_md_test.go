@@ -273,3 +273,17 @@ func TestParseYAMLStringTimestampKeepsTime(t *testing.T) {
 		t.Errorf("timestamp in a list: got %v", r["d"])
 	}
 }
+
+// A block inside another code fence is an example in a note about notes, and
+// no record. doctor does not take its opening fence for an unclosed one.
+func TestParseYAMLBlocksSkipsABlockInAnotherFence(t *testing.T) {
+	body := "````\n```yaml\nname: example\n```\n````\n\n~~~\n```yaml\nname: tilde\n~~~\n\n```yaml\nname: real\n```\n"
+	d := &Diagnostics{}
+	recs := parseYAMLBlocks([]byte(body), 0, d)
+	if len(recs) != 1 || recs[0]["name"] != "real" || recs[0]["_line"] != 12 {
+		t.Errorf("got %v, want the one block outside the fences, at line 12", recs)
+	}
+	if len(d.findings) != 0 {
+		t.Errorf("no finding expected, got %v", d.findings)
+	}
+}

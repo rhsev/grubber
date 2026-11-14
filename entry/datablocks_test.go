@@ -1,6 +1,7 @@
 package entry
 
 import (
+	"math/rand"
 	"reflect"
 	"strings"
 	"testing"
@@ -19,8 +20,12 @@ func TestDataBlocks(t *testing.T) {
 		{"closed block, then an open one", "```yaml\n```\n```yaml\nx: 1", []Span{{0, 1}}},
 		{"a second opener is the first block's text", "```yaml\n```yaml\n```", []Span{{0, 2}}},
 		{"other languages are no data", "```yml\nx: 1\n```\n```yaml x\n```", nil},
-		{"a longer fence does not hide a block", "````\n```yaml\nx: 1\n```\n````", []Span{{1, 3}}},
-		{"nor does a tilde fence", "~~~\n```yaml\nx: 1\n```\n~~~", []Span{{1, 3}}},
+		{"a block in a longer fence is an example", "````\n```yaml\nx: 1\n```\n````\n```yaml\n```", []Span{{5, 6}}},
+		{"so is one in a tilde fence", "~~~\n```yaml\nx: 1\n```\n~~~", nil},
+		{"and one in a fence with a language", "````markdown\n```yaml\nx: 1\n```\n````", nil},
+		{"a fence of three closes at the block's fence", "```sh\n```yaml\nx: 1\n```\n```yaml\ny: 2\n```", []Span{{4, 6}}},
+		{"a fence never closed holds the rest", "~~~\n```yaml\nx: 1\n```\n", nil},
+		{"an unclosed block hides no fence", "```yaml\nx: 1\n````\ntext\n````", nil},
 		{"a fence needs its own line", "text ```yaml\nx: 1\n```", nil},
 	}
 	for _, c := range cases {
@@ -30,20 +35,31 @@ func TestDataBlocks(t *testing.T) {
 	}
 }
 
-// ParseBlocks and DataBlocks differ in one thing only: ParseBlocks leaves out
-// a block that stands inside another code fence or in the frontmatter.
-func TestParseBlocksIsDataBlocksOutsideOtherFences(t *testing.T) {
-	note := "# a\n```yaml\nx: 1\n```\n````\n```yaml\ny: 2\n```\n````\n\n```yaml\n```\n"
-	lines := strings.Split(note, "\n")
-	var parsed []Span
-	for _, b := range ParseBlocks(lines) {
-		parsed = append(parsed, Span{b.Open, b.Close})
+// ParseBlocks finds the blocks DataBlocks finds. It looks at the same lines
+// for the prose around them, with code of its own.
+func TestParseBlocksFindsTheDataBlocks(t *testing.T) {
+	pieces := []string{"```yaml", "```", "  ```yaml ", "\t```\t", "a: 1", "", "### h", "````", "`````", "~~~", "~~~~",
+		"```yml", "```python", "````markdown", " ", "```yaml x", "x ```", "````yaml", "---", "text"}
+	r := rand.New(rand.NewSource(1))
+	for n := 0; n < 50000; n++ {
+		lines := []string{"text"} // no frontmatter, which ParseBlocks cuts off itself
+		for k := r.Intn(14); k > 0; k-- {
+			lines = append(lines, pieces[r.Intn(len(pieces))])
+		}
+		var parsed []Span
+		for _, b := range ParseBlocks(lines) {
+			parsed = append(parsed, Span{b.Open, b.Close})
+		}
+		if data := DataBlocks(lines); !reflect.DeepEqual(parsed, data) {
+			t.Fatalf("%q\nParseBlocks %v\n DataBlocks %v", lines, parsed, data)
+		}
 	}
-	if want := []Span{{1, 3}, {10, 11}}; !reflect.DeepEqual(parsed, want) {
-		t.Errorf("ParseBlocks: got %v, want %v", parsed, want)
-	}
-	if want := []Span{{1, 3}, {5, 7}, {10, 11}}; !reflect.DeepEqual(DataBlocks(lines), want) {
-		t.Errorf("DataBlocks: got %v, want %v", DataBlocks(lines), want)
+}
+
+func TestUnclosedData(t *testing.T) {
+	note := "```yaml\n```\n````\n```yaml\n````\n```yaml\nx: 1"
+	if got, want := UnclosedData(strings.Split(note, "\n")), []int{5}; !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v, want %v", got, want)
 	}
 }
 

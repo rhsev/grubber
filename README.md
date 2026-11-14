@@ -361,7 +361,7 @@ grubber extract ~/notes --no-config -b --no-fill --inherit= -f type=ref
 grubber reads two things from a Markdown file: YAML frontmatter and fenced YAML code blocks (` ```yaml `). Everything else is ignored.
 
 - Frontmatter holds note-level metadata (title, keywords, created date). These fields are merged into every record from that file.
-- YAML code blocks hold structured data records. Only ` ```yaml ` blocks are read; other fenced blocks are ignored.
+- YAML code blocks hold structured data records. Only ` ```yaml ` blocks are read; other fenced blocks are ignored. A ` ```yaml ` block inside another code fence is an example and is not read.
 - Multiple YAML blocks in one note produce multiple records. Each inherits the frontmatter fields.
 - **Blocks keep document order.** The records from one note come out in the order the blocks appear in it, in every output format. This is relative order, not position. A block that yields no record (empty, comments only, or not a mapping) is skipped, so the Nth record is not necessarily the Nth block.
 - On field name collision, the YAML block wins over frontmatter.

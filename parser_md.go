@@ -139,18 +139,9 @@ func parseYAMLBlocks(body []byte, baseLine int, d *Diagnostics) []Record {
 		}
 	}
 	if d != nil {
-		next := 0
-		for i, l := range lines {
-			for next < len(spans) && spans[next].Close < i {
-				next++
-			}
-			if next < len(spans) && i >= spans[next].Open {
-				continue
-			}
-			if entry.IsDataOpen(l) {
-				d.setLine(baseLine + i + 1)
-				d.add("unclosed-fence", "```yaml fence without a closing fence, block ignored")
-			}
+		for _, i := range entry.UnclosedData(lines) {
+			d.setLine(baseLine + i + 1)
+			d.add("unclosed-fence", "```yaml fence without a closing fence, block ignored")
 		}
 	}
 	return records
