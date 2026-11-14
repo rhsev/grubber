@@ -203,6 +203,7 @@ type Block struct {
 	Start       int    // first line after the boundary
 	Open, Close int    // the fence lines
 	Heading     string // text of the nearest heading above, "" if none
+	HeadingAt   int    // that heading's line, -1 if none
 	Fields      map[string]any
 }
 
@@ -311,7 +312,7 @@ func ParseBlocks(lines []string) []Block {
 	if fm := frontmatterEnd(lines); fm >= 0 {
 		boundary = fm + 1
 	}
-	heading := ""
+	heading, headingAt := "", -1
 	for i := boundary; i < len(lines); i++ {
 		line := lines[i]
 		if IsDataOpen(line) {
@@ -321,7 +322,7 @@ func ParseBlocks(lines []string) []Block {
 			}
 			if j < len(lines) {
 				fields, _ := Fields([]byte(strings.Join(lines[i+1:j], "\n")))
-				blocks = append(blocks, Block{Start: boundary, Open: i, Close: j, Heading: heading, Fields: fields})
+				blocks = append(blocks, Block{Start: boundary, Open: i, Close: j, Heading: heading, HeadingAt: headingAt, Fields: fields})
 				boundary = j + 1
 				i = j
 				continue
@@ -338,7 +339,7 @@ func ParseBlocks(lines []string) []Block {
 			continue
 		}
 		if text, ok := headingText(line); ok {
-			heading = text
+			heading, headingAt = text, i
 			boundary = i + 1
 			continue
 		}

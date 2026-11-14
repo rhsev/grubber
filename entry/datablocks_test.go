@@ -90,3 +90,13 @@ func TestFields(t *testing.T) {
 		}
 	}
 }
+
+// A heading inside a code fence is no heading, and HeadingAt names the line
+// of the one that is.
+func TestHeadingAt(t *testing.T) {
+	note := "```yaml\na: 1\n```\n### one\n~~~\n# no heading\n~~~\n```yaml\nb: 2\n```"
+	blocks := ParseBlocks(strings.Split(note, "\n"))
+	if len(blocks) != 2 || blocks[0].HeadingAt != -1 || blocks[1].HeadingAt != 3 || blocks[1].Heading != "one" {
+		t.Errorf("got %+v", blocks)
+	}
+}
