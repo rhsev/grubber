@@ -448,3 +448,30 @@ func TestBidiIsolatesAreRemoved(t *testing.T) {
 		t.Errorf("U+2067 not reported: %v", stats)
 	}
 }
+
+func TestDoctorUnclosedFrontmatter(t *testing.T) {
+	for name, tc := range map[string]struct {
+		note string
+		want bool
+	}{
+		"not closed":            {"---\ntitle: x\n\ntext\n", true},
+		"not closed, CRLF":      {"---\r\ntitle: x\r\ntext\r\n", true},
+		"only the opening line": {"---", true},
+		"closed":                {"---\ntitle: x\n---\n\ntext\n", false},
+		"closed, CRLF":          {"---\r\ntitle: x\r\n---\r\ntext\r\n", false},
+		"closed at end of file": {"---\ntitle: x\n---", false},
+		"empty and closed":      {"---\n---\n\ntext\n", false},
+		"blank after the ---":   {"--- \ntitle: x\n\ntext\n", false},
+		"rule further down":     {"text\n\n---\n\nmore\n", false},
+		"four dashes":           {"----\ntext\n", false},
+	} {
+		findings := extractWithDiag(t, tc.note)
+		f := findCategory(findings, "unclosed-frontmatter")
+		if (f != nil) != tc.want {
+			t.Errorf("%s: finding %v, want %v (%v)", name, f != nil, tc.want, findings)
+		}
+		if f != nil && f.Line != 1 {
+			t.Errorf("%s: line %d, want 1", name, f.Line)
+		}
+	}
+}

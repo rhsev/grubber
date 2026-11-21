@@ -360,7 +360,7 @@ func charFindings(path string, stats map[rune]*charStat, crlf *charStat, invalid
 // "yaml" is the hand-work class (fix the note), "chars" the hygiene class
 // (--fix handles it).
 var doctorClasses = map[string][]string{
-	"yaml":  {"yaml-error", "unclosed-fence", "non-string-keys", "non-finite", "duplicate-key", "nested-mapping", "leading-zero-number"},
+	"yaml":  {"yaml-error", "unclosed-fence", "unclosed-frontmatter", "non-string-keys", "non-finite", "duplicate-key", "nested-mapping", "leading-zero-number"},
 	"chars": {"invisible-char", "suspect-char", "invalid-utf8", "crlf"},
 }
 
@@ -573,6 +573,9 @@ that break search and pipelines. Categories:
 
   yaml-error       block is not valid YAML, line-by-line fallback used
   unclosed-fence   ` + "```" + `yaml fence without a closing fence, block ignored
+  unclosed-frontmatter
+                   frontmatter opened with --- on line 1 but never closed,
+                   frontmatter ignored
   non-string-keys  mapping with non-string keys, degrades on extract
   non-finite       NaN/Inf value, extracted as null
   duplicate-key    duplicate key in one mapping, last value wins

@@ -182,6 +182,7 @@ grubber doctor ~/notes --fix > fix-log.txt
 |----------|---------|
 | `yaml-error` | block isn't valid YAML; line-by-line fallback was used |
 | `unclosed-fence` | ` ```yaml ` fence without a closing fence; block ignored |
+| `unclosed-frontmatter` | first line is `---` and no later line is `---`; frontmatter ignored |
 | `non-string-keys` | mapping with non-string keys (e.g. an unquoted `{{...}}`); degrades on extract |
 | `non-finite` | NaN/Inf value; extracted as null |
 | `duplicate-key` | duplicate key in one mapping; last value wins |
@@ -192,7 +193,7 @@ grubber doctor ~/notes --fix > fix-log.txt
 | `invalid-utf8` | byte that is not valid UTF-8; reported but never fixed, since the right repair depends on the original encoding |
 | `crlf` | CRLF line endings; normalized to LF by `--fix` |
 
-`--only` filters the report to given categories, comma-separated, with two class shorthands: `yaml` (the first seven categories in the table, fixed by hand in the note) and `chars` (the four character-level ones, of which `--fix` handles `invisible-char` and `crlf`). The exit code follows the filter, so `doctor --only yaml` in cron stays green while deliberate NBSPs remain in the corpus. `--only` never changes what `--fix` touches.
+`--only` filters the report to given categories, comma-separated, with two class shorthands: `yaml` (the first eight categories in the table, fixed by hand in the note) and `chars` (the four character-level ones, of which `--fix` handles `invisible-char` and `crlf`). The exit code follows the filter, so `doctor --only yaml` in cron stays green while deliberate NBSPs remain in the corpus. `--only` never changes what `--fix` touches.
 
 `--fix` rewrites only files with findings and is idempotent. It overwrites the file in place, so the file keeps its inode and extended attributes, and a symlinked note stays a link. The mtime is new, so sync tools and backups see the file as changed. While it writes, the new content is kept in `.<name>.journal` next to the note. If a write stops halfway, that file remains and later writes to the note refuse until it is removed. Tabs (TaskPaper semantics), NBSP and ZWJ (it holds composed emoji together) always survive. `.jsonl` files (e.g. collection indexes named in a set's `from_jsonl`) are scanned but never written; a finding there is a hint for the tool that owns them. Unicode normalization (NFC/NFD) is out of scope. [INVISIBLES.md](INVISIBLES.md) explains what problem each character class causes.
 

@@ -35,6 +35,10 @@ func (p *mdParser) Extract(path string, data []byte, opts ParseOpts) (Record, []
 		d.setPos(path, 2) // frontmatter content starts after the opening ---
 		frontmatter = parseYAMLString(m[1], d)
 		body = data[len(m[0]):]
+	} else if d != nil && unclosedFrontmatter(data) {
+		d.setPos(path, 1)
+		d.add("unclosed-frontmatter", "first line is --- but no closing --- follows, frontmatter ignored")
+		body = data
 	} else if opts.UseMmd {
 		var bodyStr string
 		frontmatter, bodyStr = parseMmdHeader(string(data))
@@ -49,6 +53,26 @@ func (p *mdParser) Extract(path string, data []byte, opts ParseOpts) (Record, []
 	d.setPos(path, 0)
 	baseLine := bytes.Count(data[:len(data)-len(body)], []byte("\n"))
 	return frontmatter, parseYAMLBlocks(body, baseLine, d), nil
+}
+
+// unclosedFrontmatter reports a file whose first line is --- with no later
+// line that is --- as well. Such a file has no frontmatter for extract. An
+// empty frontmatter, --- directly followed by ---, is closed.
+func unclosedFrontmatter(data []byte) bool {
+	rest, ok := bytes.CutPrefix(data, []byte("---"))
+	if !ok {
+		return false
+	}
+	lines := bytes.Split(rest, []byte("\n"))
+	if len(bytes.TrimSuffix(lines[0], []byte("\r"))) != 0 {
+		return false
+	}
+	for _, l := range lines[1:] {
+		if string(bytes.TrimSuffix(l, []byte("\r"))) == "---" {
+			return false
+		}
+	}
+	return true
 }
 
 func parseYAMLString(content []byte, d *Diagnostics) Record {
