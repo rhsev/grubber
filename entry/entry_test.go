@@ -187,3 +187,26 @@ func TestParseBlocksLongerFence(t *testing.T) {
 		t.Errorf("got %+v, prose %q", b, b.Prose(lines))
 	}
 }
+
+// The closing line is --- alone on its line. A --- inside a value, or a
+// first line that is not exactly ---, is no frontmatter boundary.
+func TestFrontmatterEnd(t *testing.T) {
+	cases := []struct {
+		name string
+		note string
+		want int
+	}{
+		{"closed", "---\ntitle: a\n---\nbody", 2},
+		{"empty", "---\n---\nbody", 1},
+		{"dashes inside a value", "---\ntitle: a --- b\nstatus: x\n---\nbody", 3},
+		{"never closed", "---\ntitle: a\nbody", -1},
+		{"no frontmatter", "# heading\n---\ntext", -1},
+		{"first line longer", "----\ntitle: a\n---\n", -1},
+		{"empty note", "", -1},
+	}
+	for _, c := range cases {
+		if got := FrontmatterEnd(strings.Split(c.note, "\n")); got != c.want {
+			t.Errorf("%s: FrontmatterEnd = %d, want %d", c.name, got, c.want)
+		}
+	}
+}

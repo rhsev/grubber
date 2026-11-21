@@ -267,9 +267,12 @@ func isHeadingLine(line string) bool {
 	return ok
 }
 
-// frontmatterEnd returns the index of the frontmatter's closing line, or -1.
-// As in grubber, the file's first line must be exactly ---.
-func frontmatterEnd(lines []string) int {
+// FrontmatterEnd returns the index of the frontmatter's closing line, or -1.
+// As in grubber, the file's first line must be exactly ---, and so must the
+// closing line: a --- inside a value closes nothing. The lines are the note's,
+// without a byte order mark and split at \n after \r\n became \n, as ReadNote
+// gives them.
+func FrontmatterEnd(lines []string) int {
 	if len(lines) == 0 || lines[0] != "---" {
 		return -1
 	}
@@ -309,7 +312,7 @@ func closesFence(line, marker string) bool {
 func ParseBlocks(lines []string) []Block {
 	var blocks []Block
 	boundary := 0
-	if fm := frontmatterEnd(lines); fm >= 0 {
+	if fm := FrontmatterEnd(lines); fm >= 0 {
 		boundary = fm + 1
 	}
 	heading, headingAt := "", -1
