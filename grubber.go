@@ -109,6 +109,7 @@ func NewGrubber(notesDir string, blocksOnly, frontmatterOnly, useMmd, noFill boo
 	if len(extensions) == 0 {
 		extensions = registeredExtensions()
 	}
+	extensions = dotted(extensions)
 	var postFilter *Filter
 	if len(mergeOn) > 0 {
 		postFilter, f = f, nil
@@ -484,6 +485,19 @@ func (g *Grubber) buildResult(path string, frontmatter Record, yamlRecords []Rec
 		records = []Record{{}}
 	}
 	return &noteResult{metadata: metadata, records: records, blocks: blocks}
+}
+
+// dotted gives every extension its leading dot: "md" names the same files
+// as ".md". Without it "md" would match no file at all.
+func dotted(extensions []string) []string {
+	out := make([]string, 0, len(extensions))
+	for _, e := range extensions {
+		if e != "" && !strings.HasPrefix(e, ".") {
+			e = "." + e
+		}
+		out = append(out, e)
+	}
+	return out
 }
 
 func (g *Grubber) textFiles() ([]string, error) {

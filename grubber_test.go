@@ -540,3 +540,26 @@ func TestOutputTSVWithoutKeys(t *testing.T) {
 		t.Errorf("got %q", buf.String())
 	}
 }
+
+// An extension given without its dot names the same files as with it.
+func TestExtensionWithoutDot(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"a.md", "b.typ", "c.txt", "md"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, exts := range [][]string{{"md"}, {".md"}, {"md", ".md"}} {
+		g, err := NewGrubber(dir, false, false, false, true, nil, 0, nil, nil, exts, nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		files, err := g.textFiles()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(files) != 1 || filepath.Base(files[0]) != "a.md" {
+			t.Errorf("extensions %v: got %v, want a.md", exts, files)
+		}
+	}
+}
