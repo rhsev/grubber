@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"os"
-	"regexp"
 	"strings"
 
 	"github.com/rhsev/grubber/entry"
@@ -15,12 +14,7 @@ func init() {
 	RegisterParser(".md", &mdParser{})
 }
 
-var (
-	// The closing --- may be the file's last line without a newline after it:
-	// a note that is frontmatter only often ends that way.
-	frontmatterRe = regexp.MustCompile("(?s)^---\r?\n(.*?)\r?\n---\r?(?:\n|\\z)")
-	yamlMarker    = []byte("```yaml")
-)
+var yamlMarker = []byte("```yaml")
 
 type mdParser struct{}
 
@@ -31,11 +25,13 @@ func (p *mdParser) Extract(path string, data []byte, opts ParseOpts) (Record, []
 	var body []byte
 
 	d := opts.Diag
-	if m := frontmatterRe.FindSubmatch(data); m != nil {
+	// Where the frontmatter ends, and what an MMD header is, stands in
+	// package entry, for the tools that cut a note at the same place.
+	if fm, rest, ok := entry.Frontmatter(data); ok {
 		d.setPos(path, 2) // frontmatter content starts after the opening ---
-		frontmatter = parseYAMLString(m[1], d)
-		body = data[len(m[0]):]
-	} else if d != nil && unclosedFrontmatter(data) {
+		frontmatter = parseYAMLString(fm, d)
+		body = rest
+	} else if d != nil && opensFrontmatter(data) {
 		d.setPos(path, 1)
 		d.add("unclosed-frontmatter", "first line is --- but no closing --- follows, frontmatter ignored")
 		body = data
@@ -55,24 +51,11 @@ func (p *mdParser) Extract(path string, data []byte, opts ParseOpts) (Record, []
 	return frontmatter, parseYAMLBlocks(body, baseLine, d), nil
 }
 
-// unclosedFrontmatter reports a file whose first line is --- with no later
-// line that is --- as well. Such a file has no frontmatter for extract. An
-// empty frontmatter, --- directly followed by ---, is closed.
-func unclosedFrontmatter(data []byte) bool {
-	rest, ok := bytes.CutPrefix(data, []byte("---"))
-	if !ok {
-		return false
-	}
-	lines := bytes.Split(rest, []byte("\n"))
-	if len(bytes.TrimSuffix(lines[0], []byte("\r"))) != 0 {
-		return false
-	}
-	for _, l := range lines[1:] {
-		if string(bytes.TrimSuffix(l, []byte("\r"))) == "---" {
-			return false
-		}
-	}
-	return true
+// opensFrontmatter reports a file whose first line is ---. Without a closing
+// line (entry.Frontmatter found none) it has no frontmatter for extract.
+func opensFrontmatter(data []byte) bool {
+	first, _, _ := bytes.Cut(data, []byte("\n"))
+	return string(bytes.TrimSuffix(first, []byte("\r"))) == "---"
 }
 
 func parseYAMLString(content []byte, d *Diagnostics) Record {
@@ -172,27 +155,6 @@ func parseYAMLBlocks(body []byte, baseLine int, d *Diagnostics) []Record {
 }
 
 func parseMmdHeader(content string) (Record, string) {
-	metadata := make(Record)
-	lines := strings.Split(content, "\n")
-	lastKey := ""
-
-	for i, line := range lines {
-		if strings.TrimSpace(line) == "" {
-			return metadata, strings.Join(lines[i+1:], "\n")
-		}
-		if strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t") {
-			if lastKey != "" {
-				if existing, ok := metadata[lastKey].(string); ok {
-					metadata[lastKey] = existing + "\n" + strings.TrimSpace(line)
-				}
-			}
-		} else if idx := strings.Index(line, ":"); idx >= 0 {
-			key := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(line[:idx]), " ", "_"))
-			metadata[key] = strings.TrimSpace(line[idx+1:])
-			lastKey = key
-		} else {
-			return make(Record), content
-		}
-	}
-	return metadata, ""
+	meta, _, body := entry.MMDHeader(content)
+	return Record(meta), body
 }

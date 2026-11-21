@@ -267,23 +267,6 @@ func isHeadingLine(line string) bool {
 	return ok
 }
 
-// FrontmatterEnd returns the index of the frontmatter's closing line, or -1.
-// As in grubber, the file's first line must be exactly ---, and so must the
-// closing line: a --- inside a value closes nothing. The lines are the note's,
-// without a byte order mark and split at \n after \r\n became \n, as ReadNote
-// gives them.
-func FrontmatterEnd(lines []string) int {
-	if len(lines) == 0 || lines[0] != "---" {
-		return -1
-	}
-	for i := 1; i < len(lines); i++ {
-		if lines[i] == "---" {
-			return i
-		}
-	}
-	return -1
-}
-
 // codeFence reports whether a line opens a code fence, with its marker: the
 // whole run of backticks or tildes, three or more.
 func codeFence(line string) (string, bool) {
